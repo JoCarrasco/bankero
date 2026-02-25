@@ -572,6 +572,8 @@ Milestone tracking (as of 2026-02-25):
   - [x] CLI grammar matches section 9.4 for `buy` split form (no payee)
 
 - [ ] 3. Providers + overrides (`@provider`, `@provider:rate`) + time-based conversion
+  - [x] Offline rate store (`bankero rate set|get|list`) and deterministic resolution for `--confirm` previews
+  - [ ] Full provider-backed conversion engine (compute missing legs, deterministic provider logic)
 
 - [ ] 4. Basis (`--basis/-b`) with provider computation
 

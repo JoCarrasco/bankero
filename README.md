@@ -39,7 +39,8 @@ As of 2026-02-25:
 - [x] Workspace switching (`ws add|checkout|check`) with complete data isolation per workspace
 - [x] Project checkout stored in config and recorded on events (project list/spend rollups pending)
 - [x] Integration tests to freeze current CLI behavior (runs against a temporary `BANKERO_HOME`)
-- [x] `--confirm` for PRD-style move prompts for rate and prints value preview (`move ... @provider --confirm`)
+- [x] Offline provider rate store (`bankero rate set|get|list`)
+- [x] `--confirm` uses stored provider rates and prints a value preview (`move ... @provider --confirm`)
 - [x] `--confirm` prompts to materialize basis when using `-b @provider`
 
 Next up (in PRD order):
@@ -191,7 +192,17 @@ bankero <action> <amount> <commodity> --from <account> --to <account> [flags]
 - `--tag <name>`: repeatable free-form tags for filtering reports (e.g., `--tag groceries --tag family`).
 - `--category <path>`: a primary category for budgets and rollups (e.g., `expenses:food:groceries`).
 - `--note`, `-m`: free-form note/memo.
-- `--confirm`: fetches required rates and asks for confirmation before writing.
+- `--confirm`: resolves required provider rates from the local rate store and asks for confirmation before writing.
+
+### Provider rates (offline)
+
+If you use `@provider` without an explicit override like `@provider:rate`, you can store provider rates locally:
+
+```bash
+bankero rate set @bcv USD VES 45.2 --as-of 2026-02-25T12:00:00Z
+bankero rate get @bcv USD VES --as-of 2026-02-25T12:00:00Z
+bankero rate list @bcv USD VES
+```
 
 ### Usage examples
 

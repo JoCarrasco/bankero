@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::io::{self, Write};
 use uuid::Uuid;
 
-use crate::cli::{Cli, Command, ProjectCmd, WsCmd, parse_provider_opt};
+use crate::cli::{Cli, Command, ProjectCmd, RateCommand, WsCmd, parse_provider_opt};
 use crate::config::{AppConfig, app_paths, load_or_init_config, now_utc, write_config};
 use crate::db::Db;
 use crate::domain::{
@@ -146,6 +146,9 @@ fn run() -> Result<()> {
             let filtered = filter_events(&events, &args)?;
             print_report(&filtered);
         }
+        Command::Rate(args) => {
+            handle_rate(&db, args.command)?;
+        }
         Command::Budget(_cmd) => {
             eprintln!("budget commands are not implemented yet (Milestone 6)");
         }
@@ -162,6 +165,71 @@ fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn normalize_provider(raw: &str) -> String {
+    raw.trim().trim_start_matches('@').to_string()
+}
+
+fn handle_rate(db: &Db, cmd: RateCommand) -> Result<()> {
+    match cmd {
+        RateCommand::Set(args) => {
+            let provider = normalize_provider(&args.provider);
+            let base = args.base.to_ascii_uppercase();
+            let quote = args.quote.to_ascii_uppercase();
+            let as_of = parse_rfc3339_or_now(args.as_of.as_deref())?;
+            db.set_rate(&provider, &base, &quote, as_of, args.rate)?;
+            println!(
+                "Set rate @{} {} per {} = {} (as of {}).",
+                provider,
+                quote,
+                base,
+                args.rate,
+                as_of.to_rfc3339()
+            );
+            Ok(())
+        }
+        RateCommand::Get(args) => {
+            let provider = normalize_provider(&args.provider);
+            let base = args.base.to_ascii_uppercase();
+            let quote = args.quote.to_ascii_uppercase();
+            let as_of = parse_rfc3339_or_now(args.as_of.as_deref())?;
+            let Some((found_as_of, rate)) = db.get_rate_as_of(&provider, &base, &quote, as_of)?
+            else {
+                return Err(anyhow!(
+                    "No stored rate for @{} {} per {} at or before {}",
+                    provider,
+                    quote,
+                    base,
+                    as_of.to_rfc3339()
+                ));
+            };
+
+            println!(
+                "@{} {} per {} = {} (as of {}).",
+                provider,
+                quote,
+                base,
+                rate,
+                found_as_of.to_rfc3339()
+            );
+            Ok(())
+        }
+        RateCommand::List(args) => {
+            let provider = normalize_provider(&args.provider);
+            let base = args.base.to_ascii_uppercase();
+            let quote = args.quote.to_ascii_uppercase();
+            let rows = db.list_rates(&provider, &base, &quote, 50)?;
+            if rows.is_empty() {
+                println!("(no rates)");
+                return Ok(());
+            }
+            for (as_of, rate) in rows {
+                println!("{}\t{}", as_of.to_rfc3339(), rate);
+            }
+            Ok(())
+        }
+    }
 }
 
 fn handle_ws(
@@ -720,28 +788,63 @@ fn maybe_confirm_and_insert(
     payload: &EventPayload,
     confirm: bool,
 ) -> Result<()> {
-    if !confirm {
-        db.insert_event(event_id, payload)?;
-        return Ok(());
-    }
-
     let mut payload = payload.clone();
-    let provider = payload.rate_context.provider.clone();
 
-    if provider.is_some()
+    // Deterministic provider resolution (offline): if a provider is set but no override rate
+    // exists, in confirm mode we resolve it from the local rate store.
+    let provider_display = payload.rate_context.provider.clone();
+    if confirm
+        && provider_display.is_some()
         && payload.rate_context.override_rate.is_none()
         && payload.rate_context.base.is_some()
         && payload.rate_context.quote.is_some()
     {
-        let rate = prompt_decimal(&format!(
-            "Enter rate for {} ({} per {}) or blank to skip: ",
-            provider.clone().unwrap_or_else(|| "@provider".to_string()),
-            payload.rate_context.quote.as_deref().unwrap_or("quote"),
-            payload.rate_context.base.as_deref().unwrap_or("base"),
-        ))?;
-        if let Some(rate) = rate {
-            payload.rate_context.override_rate = Some(rate);
-        }
+        let provider_display = provider_display
+            .clone()
+            .unwrap_or_else(|| "@provider".to_string());
+        let provider = normalize_provider(&provider_display);
+        let base = payload
+            .rate_context
+            .base
+            .clone()
+            .unwrap_or_else(|| "base".to_string())
+            .to_ascii_uppercase();
+        let quote = payload
+            .rate_context
+            .quote
+            .clone()
+            .unwrap_or_else(|| "quote".to_string())
+            .to_ascii_uppercase();
+
+        let as_of = payload.rate_context.as_of;
+        let Some((found_as_of, rate)) = db.get_rate_as_of(&provider, &base, &quote, as_of)? else {
+            return Err(anyhow!(
+                "No stored rate for {} ({} per {}) at or before {}. Set one with: bankero rate set {} {} {} <rate> --as-of <rfc3339>\nOr pass an explicit override like {}:<rate>.",
+                provider_display,
+                quote,
+                base,
+                as_of.to_rfc3339(),
+                provider_display,
+                base,
+                quote,
+                provider_display,
+            ));
+        };
+
+        payload.rate_context.override_rate = Some(rate);
+        payload.metadata["rate_resolved_as_of"] =
+            serde_json::Value::String(found_as_of.to_rfc3339());
+        eprintln!(
+            "Using {} rate {} (as of {}).",
+            provider_display,
+            rate,
+            found_as_of.to_rfc3339()
+        );
+    }
+
+    if !confirm {
+        db.insert_event(event_id, &payload)?;
+        return Ok(());
     }
 
     // Basis provider confirmation: allow the user to materialize a provider-based basis
@@ -765,7 +868,7 @@ fn maybe_confirm_and_insert(
 
     // Preview (best-effort) when we have enough information.
     if let (Some(provider), Some(rate), Some(base), Some(quote)) = (
-        provider.clone(),
+        provider_display.clone(),
         payload.rate_context.override_rate,
         payload.rate_context.base.clone(),
         payload.rate_context.quote.clone(),

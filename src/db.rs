@@ -3,6 +3,7 @@ use crate::domain::{EventPayload, StoredEvent};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, params};
+use rust_decimal::Decimal;
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -42,9 +43,117 @@ impl Db {
 
             CREATE INDEX IF NOT EXISTS idx_events_effective_at ON events(effective_at);
             CREATE INDEX IF NOT EXISTS idx_events_action ON events(action);
+
+            CREATE TABLE IF NOT EXISTS rates (
+                provider TEXT NOT NULL,
+                base TEXT NOT NULL,
+                quote TEXT NOT NULL,
+                as_of TEXT NOT NULL,
+                rate TEXT NOT NULL,
+                PRIMARY KEY (provider, base, quote, as_of)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_rates_lookup ON rates(provider, base, quote, as_of);
             "#,
         )?;
         Ok(())
+    }
+
+    pub fn set_rate(
+        &self,
+        provider: &str,
+        base: &str,
+        quote: &str,
+        as_of: DateTime<Utc>,
+        rate: Decimal,
+    ) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT INTO rates (provider, base, quote, as_of, rate)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(provider, base, quote, as_of) DO UPDATE SET rate = excluded.rate
+            "#,
+            params![provider, base, quote, as_of.to_rfc3339(), rate.to_string(),],
+        )?;
+        Ok(())
+    }
+
+    /// Returns the latest known rate at or before `as_of`.
+    pub fn get_rate_as_of(
+        &self,
+        provider: &str,
+        base: &str,
+        quote: &str,
+        as_of: DateTime<Utc>,
+    ) -> Result<Option<(DateTime<Utc>, Decimal)>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT as_of, rate
+            FROM rates
+            WHERE provider = ?1
+              AND base = ?2
+              AND quote = ?3
+              AND as_of <= ?4
+            ORDER BY as_of DESC
+            LIMIT 1
+            "#,
+        )?;
+
+        let mut rows = stmt.query(params![provider, base, quote, as_of.to_rfc3339()])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+
+        let as_of_raw: String = row.get(0)?;
+        let rate_raw: String = row.get(1)?;
+
+        let as_of = DateTime::parse_from_rfc3339(&as_of_raw)
+            .context("Invalid as_of in rates table")?
+            .with_timezone(&Utc);
+        let rate = rate_raw
+            .parse::<Decimal>()
+            .context("Invalid decimal rate in rates table")?;
+
+        Ok(Some((as_of, rate)))
+    }
+
+    pub fn list_rates(
+        &self,
+        provider: &str,
+        base: &str,
+        quote: &str,
+        limit: usize,
+    ) -> Result<Vec<(DateTime<Utc>, Decimal)>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT as_of, rate
+            FROM rates
+            WHERE provider = ?1
+              AND base = ?2
+              AND quote = ?3
+            ORDER BY as_of DESC
+            LIMIT ?4
+            "#,
+        )?;
+
+        let rows = stmt.query_map(params![provider, base, quote, limit as i64], |row| {
+            let as_of_raw: String = row.get(0)?;
+            let rate_raw: String = row.get(1)?;
+            Ok((as_of_raw, rate_raw))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (as_of_raw, rate_raw) = row?;
+            let as_of = DateTime::parse_from_rfc3339(&as_of_raw)
+                .context("Invalid as_of in rates table")?
+                .with_timezone(&Utc);
+            let rate = rate_raw
+                .parse::<Decimal>()
+                .context("Invalid decimal rate in rates table")?;
+            out.push((as_of, rate));
+        }
+        Ok(out)
     }
 
     pub fn insert_event(&self, id: Uuid, payload: &EventPayload) -> Result<()> {

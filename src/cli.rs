@@ -145,6 +145,21 @@ Examples:
     Report(ReportArgs),
 
     #[command(
+        about = "Manage offline provider FX rates",
+        long_about = r#"Manage offline provider FX rates.
+
+Bankero is offline-first, so provider rates must be available locally for
+deterministic previews/conversions.
+
+Examples:
+    bankero rate set @binance USD VES 45.2 --as-of 2026-02-25T12:00:00Z
+    bankero rate get @binance USD VES --as-of 2026-02-25T12:00:00Z
+    bankero rate list @binance USD VES
+"#
+    )]
+    Rate(RateArgs),
+
+    #[command(
         about = "Budget commands (stub)",
         long_about = r#"Budget commands (stub).
 
@@ -211,6 +226,49 @@ Examples:
     Piggy(PiggyArgs),
 }
 
+#[derive(Debug, Args)]
+pub struct RateArgs {
+    #[command(subcommand)]
+    pub command: RateCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RateCommand {
+    #[command(
+        about = "Set a provider rate at an as-of timestamp",
+        long_about = r#"Set a provider rate.
+
+The rate is interpreted as: <quote> per <base>.
+
+Example:
+    bankero rate set @bcv USD VES 45.2 --as-of 2026-02-25T12:00:00Z
+"#
+    )]
+    Set(RateSetArgs),
+
+    #[command(
+        about = "Get the latest provider rate at or before as-of",
+        long_about = r#"Get a provider rate.
+
+Returns the most recent stored rate at or before the provided --as-of timestamp.
+
+Example:
+    bankero rate get @bcv USD VES --as-of 2026-02-25T12:00:00Z
+"#
+    )]
+    Get(RateGetArgs),
+
+    #[command(
+        about = "List stored rates (newest first)",
+        long_about = r#"List stored rates (newest first).
+
+Example:
+    bankero rate list @bcv USD VES
+"#
+    )]
+    List(RateListArgs),
+}
+
 #[derive(Debug, Args, Clone)]
 pub struct CommonEventFlags {
     #[arg(long, short = 'm', alias = "note")]
@@ -269,6 +327,39 @@ In confirm mode, provider basis can prompt you to materialize the basis amount.
 "#
     )]
     pub basis: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct RateSetArgs {
+    /// Provider token like "@binance" (the leading '@' is optional).
+    pub provider: String,
+    pub base: String,
+    pub quote: String,
+    pub rate: Decimal,
+
+    /// As-of timestamp (RFC3339). Defaults to now.
+    #[arg(long)]
+    pub as_of: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct RateGetArgs {
+    /// Provider token like "@binance" (the leading '@' is optional).
+    pub provider: String,
+    pub base: String,
+    pub quote: String,
+
+    /// As-of timestamp (RFC3339). Defaults to now.
+    #[arg(long)]
+    pub as_of: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct RateListArgs {
+    /// Provider token like "@binance" (the leading '@' is optional).
+    pub provider: String,
+    pub base: String,
+    pub quote: String,
 }
 
 #[derive(Debug, Args)]
