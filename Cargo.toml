@@ -1,6 +1,6 @@
 [package]
 name = "bankero"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 description = "Local-first multi-currency ledger (CLI)"
 repository = "https://github.com/JoCarrasco/bankero"

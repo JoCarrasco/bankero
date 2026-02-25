@@ -11,6 +11,88 @@ Bankero is CLI-first: your ledger lives on your machine, stays usable offline, a
 - **Multi-currency, time-aware**: conversions use an *as-of timestamp* with explicit rate selection semantics.
 - **Predictable math**: clear rounding rules, currency precision, and reproducible totals.
 
+## Install
+
+### Fedora/RHEL (RPM)
+
+Bankero publishes an `.rpm` artifact on each GitHub Release.
+
+#### 1) Download the RPM from GitHub Releases
+
+- Go to: `https://github.com/JoCarrasco/bankero/releases`
+- Download the latest `bankero-<version>-1.x86_64.rpm`
+
+#### 2) Install
+
+```bash
+sudo dnf install ./bankero-*.rpm
+bankero --help
+```
+
+#### Upgrade
+
+Download the newer RPM and run:
+
+```bash
+sudo dnf upgrade ./bankero-*.rpm
+```
+
+Note: this is a direct RPM install (no `dnf` repo yet), so upgrades require downloading the new RPM.
+
+### Debian/Ubuntu (APT)
+
+This project can be distributed via a signed APT repository hosted on GitHub Pages.
+
+Repo URL (GitHub Pages):
+
+- `https://jocarrasco.github.io/bankero/apt`
+
+#### 1) Add the signing key
+
+Download and install the repository public key into a dedicated keyring:
+
+```bash
+curl -fsSL https://jocarrasco.github.io/bankero/apt/public.gpg \
+	| sudo gpg --dearmor -o /usr/share/keyrings/bankero-archive-keyring.gpg
+```
+
+#### 2) Add the apt source
+
+```bash
+echo "deb [signed-by=/usr/share/keyrings/bankero-archive-keyring.gpg] https://jocarrasco.github.io/bankero/apt stable main" \
+	| sudo tee /etc/apt/sources.list.d/bankero.list
+sudo apt-get update
+```
+
+#### 3) Install
+
+```bash
+sudo apt-get install bankero
+bankero --help
+```
+
+#### Upgrade
+
+Once installed via APT, you can upgrade with the built-in helper:
+
+```bash
+bankero upgrade
+bankero upgrade --apply
+```
+
+If you haven't configured the repo yet, this will set it up and then upgrade:
+
+```bash
+bankero upgrade --setup-apt --apply
+```
+
+#### Publishing notes
+
+- The GitHub Actions release workflow expects repository secrets:
+	- `APT_GPG_PRIVATE_KEY` (ASCII-armored private key)
+	- `APT_GPG_PASSPHRASE` (optional; only needed if the private key is passphrase-protected)
+- The workflow exports the public key automatically to `https://jocarrasco.github.io/bankero/apt/public.gpg`.
+
 ## Non-goals (for now)
 
 - Building a hosted SaaS.
@@ -93,60 +175,6 @@ cargo e2e
 - [x] Budgets: create + report actuals — `tests/budget_flow.rs::budget_create_and_report_shows_actual_spend_for_month`
 - [x] Budgets: effective balance (reserved + effective) — `tests/budget_flow.rs::balance_shows_reserved_and_effective_for_account_scoped_budgets`
 - [x] Budgets: automation (funded cap minus spend) — `tests/budget_flow.rs::auto_reserve_reserves_only_funded_amount_minus_spend`
-
-## Install (Debian/Ubuntu via APT)
-
-This project can be distributed via a signed APT repository hosted on GitHub Pages.
-
-Repo URL (GitHub Pages):
-
-- `https://jocarrasco.github.io/bankero/apt`
-
-### 1) Add the signing key
-
-Download and install the repository public key into a dedicated keyring:
-
-```bash
-curl -fsSL https://jocarrasco.github.io/bankero/apt/public.gpg \
-	| sudo gpg --dearmor -o /usr/share/keyrings/bankero-archive-keyring.gpg
-```
-
-### 2) Add the apt source
-
-```bash
-echo "deb [signed-by=/usr/share/keyrings/bankero-archive-keyring.gpg] https://jocarrasco.github.io/bankero/apt stable main" \
-	| sudo tee /etc/apt/sources.list.d/bankero.list
-sudo apt-get update
-```
-
-### 3) Install
-
-```bash
-sudo apt-get install bankero
-bankero --help
-```
-
-### Upgrade
-
-Once installed via APT, you can upgrade with the built-in helper:
-
-```bash
-bankero upgrade
-bankero upgrade --apply
-```
-
-If you haven't configured the repo yet, this will set it up and then upgrade:
-
-```bash
-bankero upgrade --setup-apt --apply
-```
-
-### Publishing notes
-
-- The GitHub Actions release workflow expects repository secrets:
-	- `APT_GPG_PRIVATE_KEY` (ASCII-armored private key)
-	- `APT_GPG_PASSPHRASE` (optional; only needed if the private key is passphrase-protected)
-- The workflow exports the public key automatically to `https://jocarrasco.github.io/bankero/apt/public.gpg`.
 
 ## Concepts
 
