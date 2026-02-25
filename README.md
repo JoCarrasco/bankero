@@ -42,7 +42,7 @@ As of 2026-02-25:
 - [x] Offline provider rate store (`bankero rate set|get|list`)
 - [x] `--confirm` uses stored provider rates and prints a value preview (`move ... @provider --confirm`)
 - [x] Computed cross-currency `move` using stored rates (`move 100 USD ... VES @provider`)
-- [x] `--confirm` prompts to materialize basis when using `-b @provider`
+- [x] `--confirm` computes basis deterministically when using `-b @provider` (requires stored rates)
 
 Next up (in PRD order):
 

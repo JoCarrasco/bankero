@@ -898,23 +898,49 @@ fn maybe_confirm_and_insert(
         return Ok(());
     }
 
-    // Basis provider confirmation: allow the user to materialize a provider-based basis
-    // as an explicit fixed amount in the reference commodity for determinism.
+    // Deterministic basis computation: if a provider-based basis is requested,
+    // compute a fixed basis amount in the reference commodity using the local rate store.
     if let Some(BasisContext::Provider { provider }) = payload.basis.clone() {
-        let basis_amount = prompt_decimal(&format!(
-            "Enter basis amount in {} for {} or blank to keep as provider-only: ",
-            cfg.reference_commodity, provider
-        ))?;
-        if let Some(amount) = basis_amount {
-            payload.basis = Some(BasisContext::Fixed {
-                amount,
-                commodity: cfg.reference_commodity.clone(),
-            });
-            payload.metadata["basis_provider"] = serde_json::Value::String(provider);
-            eprintln!("Basis: {} {}.", amount, cfg.reference_commodity);
-        } else {
-            eprintln!("Basis provider: {} (not materialized).", provider);
-        }
+        let provider_display = provider;
+        let provider = normalize_provider(&provider_display);
+
+        let Some((from_amount, from_commodity)) = primary_outgoing_amount(&payload.postings) else {
+            return Err(anyhow!(
+                "Cannot compute basis for {}: no outgoing posting found",
+                provider_display
+            ));
+        };
+
+        let as_of = payload.rate_context.as_of;
+        let to_commodity = cfg.reference_commodity.to_ascii_uppercase();
+        let from_commodity = from_commodity.to_ascii_uppercase();
+
+        let (basis_amount, rate_used, inverted, rate_as_of) = resolve_and_convert(
+            db,
+            &provider,
+            &from_commodity,
+            &to_commodity,
+            as_of,
+            from_amount,
+        )
+        .with_context(|| format!("Failed to compute basis via {provider_display}"))?;
+
+        payload.basis = Some(BasisContext::Fixed {
+            amount: basis_amount,
+            commodity: to_commodity.clone(),
+        });
+        payload.metadata["basis_provider"] = serde_json::Value::String(provider_display.clone());
+        payload.metadata["basis_rate_used"] = serde_json::Value::String(rate_used.to_string());
+        payload.metadata["basis_rate_inverted"] = serde_json::Value::Bool(inverted);
+        payload.metadata["basis_rate_as_of"] = serde_json::Value::String(rate_as_of.to_rfc3339());
+        payload.metadata["basis_from_amount"] = serde_json::Value::String(from_amount.to_string());
+        payload.metadata["basis_from_commodity"] =
+            serde_json::Value::String(from_commodity.clone());
+
+        eprintln!(
+            "Basis: {} {} (via {}).",
+            basis_amount, to_commodity, provider_display
+        );
     }
 
     // Preview (best-effort) when we have enough information.
@@ -973,6 +999,59 @@ fn quote_amount_from_postings(postings: &[Posting], quote_commodity: &str) -> Op
     } else {
         None
     }
+}
+
+fn primary_outgoing_amount(postings: &[Posting]) -> Option<(Decimal, String)> {
+    // Sum outgoing amounts (negative postings) by commodity and return the largest.
+    let mut by_commodity: BTreeMap<String, Decimal> = BTreeMap::new();
+    for p in postings {
+        if p.amount.is_sign_negative() {
+            *by_commodity
+                .entry(p.commodity.clone())
+                .or_insert(Decimal::ZERO) += -p.amount;
+        }
+    }
+    by_commodity
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1))
+        .map(|(c, a)| (a, c))
+}
+
+/// Convert `amount` in `from` commodity into `to` commodity using the offline rate store.
+///
+/// Rates are stored as: (quote per base). This supports either:
+/// - direct rate: base=from, quote=to => amount_to = amount_from * rate
+/// - inverted rate: base=to, quote=from => amount_to = amount_from / rate
+fn resolve_and_convert(
+    db: &Db,
+    provider: &str,
+    from: &str,
+    to: &str,
+    as_of: DateTime<Utc>,
+    amount: Decimal,
+) -> Result<(Decimal, Decimal, bool, DateTime<Utc>)> {
+    if from == to {
+        return Ok((amount, Decimal::ONE, false, as_of));
+    }
+
+    if let Some((found_as_of, rate)) = db.get_rate_as_of(provider, from, to, as_of)? {
+        return Ok((amount * rate, rate, false, found_as_of));
+    }
+
+    if let Some((found_as_of, rate)) = db.get_rate_as_of(provider, to, from, as_of)? {
+        if rate.is_zero() {
+            return Err(anyhow!("Stored rate is zero"));
+        }
+        return Ok((amount / rate, rate, true, found_as_of));
+    }
+
+    Err(anyhow!(
+        "No stored rate for @{} between {} and {} at or before {}",
+        provider,
+        from,
+        to,
+        as_of.to_rfc3339()
+    ))
 }
 
 fn prompt_yes_no(prompt: &str) -> Result<bool> {

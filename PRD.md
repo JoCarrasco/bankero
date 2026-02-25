@@ -568,7 +568,7 @@ Milestone tracking (as of 2026-02-25):
   - [ ] `--confirm` flow matches PRD intent (rate fetch/preview + confirmation)
     - [x] `move ... @provider --confirm` resolves provider rates deterministically and prints a value preview
     - [x] Deterministic provider rate resolution (offline rate store; no interactive prompt)
-    - [x] Basis-provider preview/confirmation prompt (`-b @provider`)
+    - [x] Basis-provider computation in `--confirm` using stored rates (`-b @provider`)
   - [x] CLI grammar matches section 9.4 for `buy` split form (no payee)
 
 - [ ] 3. Providers + overrides (`@provider`, `@provider:rate`) + time-based conversion
@@ -577,6 +577,7 @@ Milestone tracking (as of 2026-02-25):
   - [ ] Full provider-backed conversion engine (compute missing legs, deterministic provider logic)
 
 - [ ] 4. Basis (`--basis/-b`) with provider computation
+  - [x] Deterministic basis computation from stored provider rates in `--confirm` for `-b @provider`
 
 - [ ] 5. Tags/categories + filtering
   - [x] Tags/categories stored on events and filterable in `report`
