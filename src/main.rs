@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::io::{self, Write};
 use uuid::Uuid;
 
-use crate::cli::{find_provider_token, Cli, Command, ProjectCmd, WsCmd};
+use crate::cli::{parse_provider_opt, Cli, Command, ProjectCmd, WsCmd};
 use crate::config::{app_paths, load_or_init_config, now_utc, write_config, AppConfig};
 use crate::db::Db;
 use crate::domain::{
@@ -46,23 +46,33 @@ fn run() -> Result<()> {
 
     match cli.command {
         Command::Deposit(args) => {
-            let provider = find_provider_token(&args.extra);
             let confirm = args.common.confirm;
             let event_id = Uuid::new_v4();
-            let payload = build_deposit_event(&cfg, "deposit", event_id, args.amount, args.commodity, args.from, args.to, provider, args.common)?;
+            let payload = build_deposit_event(&cfg, "deposit", event_id, args.amount, args.commodity, args.from, args.to, None, args.common)?;
             maybe_confirm_and_insert(&db, event_id, &payload, confirm)?;
             println!("Wrote event {event_id} to {}", db_path.display());
         }
         Command::Move(args) => {
-            let provider = find_provider_token(&args.extra);
+            let (to_amount, to_commodity, provider) = parse_move_tail(&args.tail)?;
             let confirm = args.common.confirm;
             let event_id = Uuid::new_v4();
-            let payload = build_move_event(&cfg, event_id, args.amount, args.commodity, args.from, args.to, provider, &args.extra, args.common)?;
+            let payload = build_move_event(
+                &cfg,
+                event_id,
+                args.amount,
+                args.commodity,
+                args.from,
+                args.to,
+                provider,
+                to_amount,
+                to_commodity,
+                args.common,
+            )?;
             maybe_confirm_and_insert(&db, event_id, &payload, confirm)?;
             println!("Wrote event {event_id} to {}", db_path.display());
         }
         Command::Buy(args) => {
-            let provider = find_provider_token(&args.extra);
+            let provider = parse_provider_opt(&args.provider);
             let confirm = args.common.confirm;
             let event_id = Uuid::new_v4();
 
@@ -91,10 +101,21 @@ fn run() -> Result<()> {
             println!("Wrote event {event_id} to {}", db_path.display());
         }
         Command::Sell(args) => {
-            let provider = find_provider_token(&args.extra);
+            let provider = parse_provider_opt(&args.provider);
             let confirm = args.common.confirm;
             let event_id = Uuid::new_v4();
-            let payload = build_sell_event(&cfg, event_id, args.amount, args.commodity, args.from, args.to, provider, &args.extra, args.common)?;
+            let payload = build_sell_event(
+                &cfg,
+                event_id,
+                args.amount,
+                args.commodity,
+                args.from,
+                args.to,
+                args.to_amount,
+                args.to_commodity,
+                provider,
+                args.common,
+            )?;
             maybe_confirm_and_insert(&db, event_id, &payload, confirm)?;
             println!("Wrote event {event_id} to {}", db_path.display());
         }
@@ -188,6 +209,40 @@ fn parse_rfc3339_or_now(raw: Option<&str>) -> Result<DateTime<Utc>> {
     }
 }
 
+fn parse_move_tail(tail: &[String]) -> Result<(Option<Decimal>, Option<String>, Option<ProviderToken>)> {
+    match tail.len() {
+        0 => Ok((None, None, None)),
+        1 => {
+            let maybe_provider = tail[0].as_str();
+            let provider = crate::domain::parse_provider_token(maybe_provider).ok_or_else(|| {
+                anyhow!(
+                    "Invalid move tail. Expected @provider or @provider:rate, got: {maybe_provider}"
+                )
+            })?;
+            Ok((None, None, Some(provider)))
+        }
+        2 => {
+            let to_amount = parse_decimal(tail[0].clone(), "to_amount")?;
+            let to_commodity = tail[1].clone();
+            Ok((Some(to_amount), Some(to_commodity), None))
+        }
+        3 => {
+            let to_amount = parse_decimal(tail[0].clone(), "to_amount")?;
+            let to_commodity = tail[1].clone();
+            let provider = crate::domain::parse_provider_token(&tail[2]).ok_or_else(|| {
+                anyhow!(
+                    "Invalid move tail provider. Expected @provider or @provider:rate, got: {}",
+                    tail[2]
+                )
+            })?;
+            Ok((Some(to_amount), Some(to_commodity), Some(provider)))
+        }
+        _ => Err(anyhow!(
+            "Invalid move tail. Expected at most 3 values: <to_amount> <to_commodity> [@provider[:rate]]"
+        )),
+    }
+}
+
 fn parse_as_of(common: &crate::cli::CommonEventFlags, effective_at: DateTime<Utc>) -> Result<DateTime<Utc>> {
     if let Some(as_of) = &common.as_of {
         let dt = DateTime::parse_from_rfc3339(as_of)
@@ -210,6 +265,14 @@ fn build_rate_context(
         base,
         quote,
         as_of,
+    }
+}
+
+fn infer_ref_rate_pair(reference: &str, commodity: &str) -> (Option<String>, Option<String>) {
+    if commodity == reference {
+        (None, None)
+    } else {
+        (Some(reference.to_string()), Some(commodity.to_string()))
     }
 }
 
@@ -274,7 +337,8 @@ fn build_move_event(
     from: String,
     to: String,
     provider: Option<ProviderToken>,
-    extra: &[String],
+    to_amount: Option<Decimal>,
+    to_commodity: Option<String>,
     common: crate::cli::CommonEventFlags,
 ) -> Result<EventPayload> {
     let amount = parse_decimal(amount_raw, "amount")?;
@@ -282,7 +346,13 @@ fn build_move_event(
     let effective_at = parse_rfc3339_or_now(common.effective_at.as_deref())?;
     let as_of = parse_as_of(&common, effective_at)?;
 
-    let (to_amount, to_commodity, inferred_rate) = parse_cross_currency_tail(extra, amount, &commodity)?;
+    let (to_amount, to_commodity, inferred_rate) = match (to_amount, to_commodity) {
+        (Some(to_amount), Some(c)) => {
+            let inferred_rate = if amount.is_zero() { None } else { Some(to_amount / amount) };
+            (Some(to_amount), Some(c), inferred_rate)
+        }
+        _ => (None, None, None),
+    };
 
     let mut postings = vec![Posting {
         account: from,
@@ -360,7 +430,13 @@ fn build_move_event(
         tags: common.tags,
         category: common.category,
         note: common.note,
-        rate_context: build_rate_context(provider, as_of, None, None),
+        rate_context: {
+            let (base, quote) = match provider.as_ref() {
+                None => (None, None),
+                Some(_) => infer_ref_rate_pair(&cfg.reference_commodity, &commodity),
+            };
+            build_rate_context(provider, as_of, base, quote)
+        },
         basis,
         metadata: serde_json::json!({"event_id": event_id.to_string(), "confirm": common.confirm}),
     })
@@ -436,7 +512,13 @@ fn build_buy_event(
         tags: common.tags,
         category: common.category,
         note: common.note,
-        rate_context: build_rate_context(provider, as_of, None, None),
+        rate_context: {
+            let (base, quote) = match provider.as_ref() {
+                None => (None, None),
+                Some(_) => infer_ref_rate_pair(&cfg.reference_commodity, &commodity),
+            };
+            build_rate_context(provider, as_of, base, quote)
+        },
         basis,
         metadata: serde_json::json!({
             "event_id": event_id.to_string(),
@@ -453,8 +535,9 @@ fn build_sell_event(
     commodity: String,
     from: Option<String>,
     to: String,
+    to_amount: Decimal,
+    to_commodity: String,
     provider: Option<ProviderToken>,
-    extra: &[String],
     common: crate::cli::CommonEventFlags,
 ) -> Result<EventPayload> {
     let amount = parse_decimal(amount_raw, "amount")?;
@@ -464,11 +547,7 @@ fn build_sell_event(
 
     let from_account = from.unwrap_or_else(|| format!("assets:{}", commodity.to_ascii_lowercase()));
 
-    let (to_amount, to_commodity, inferred_rate) = parse_cross_currency_tail(extra, amount, &commodity)?;
-    let (to_amount, to_commodity) = match (to_amount, to_commodity) {
-        (Some(a), Some(c)) => (a, c),
-        _ => return Err(anyhow!("sell requires trailing <to_amount> <to_commodity> (see PRD examples)")),
-    };
+    let inferred_rate = if amount.is_zero() { None } else { Some(to_amount / amount) };
 
     let mut p = provider;
     if inferred_rate.is_some() {
@@ -515,7 +594,7 @@ fn build_sell_event(
         tags: common.tags,
         category: common.category,
         note: common.note,
-        rate_context: build_rate_context(p, as_of, Some(commodity), Some(to_commodity)),
+        rate_context: build_rate_context(p, as_of, Some(commodity), Some(to_commodity.clone())),
         basis,
         metadata: serde_json::json!({"event_id": event_id.to_string(), "confirm": common.confirm}),
     })
@@ -579,47 +658,7 @@ fn parse_fixed_basis(raw: &Option<String>) -> Option<BasisContext> {
     })
 }
 
-fn parse_cross_currency_tail(
-    extra: &[String],
-    from_amount: Decimal,
-    from_commodity: &str,
-) -> Result<(Option<Decimal>, Option<String>, Option<Decimal>)> {
-    // Look for pattern: <to_amount> <to_commodity> (provider token ignored here)
-    let mut nums: Vec<(usize, Decimal)> = Vec::new();
-    for (i, token) in extra.iter().enumerate() {
-        if token.starts_with('@') {
-            continue;
-        }
-        if let Ok(d) = token.parse::<Decimal>() {
-            nums.push((i, d));
-        }
-    }
-
-    if nums.is_empty() {
-        return Ok((None, None, None));
-    }
-
-    // We only support the first number as the to_amount.
-    let (idx, to_amount) = nums[0];
-    let to_commodity = extra.get(idx + 1).cloned();
-    let to_commodity = match to_commodity {
-        Some(c) if !c.starts_with('@') => Some(c),
-        _ => None,
-    };
-
-    if let Some(tc) = &to_commodity {
-        let inferred_rate = if from_amount.is_zero() {
-            None
-        } else {
-            // inferred quote per base: to_amount (quote) / from_amount (base)
-            Some(to_amount / from_amount)
-        };
-        let _ = (from_commodity, tc);
-        return Ok((Some(to_amount), Some(tc.clone()), inferred_rate));
-    }
-
-    Ok((None, None, None))
-}
+// parse_cross_currency_tail removed (explicit positionals used instead)
 
 fn parse_split_to(raw: &str, commodity: &str) -> Result<(String, Decimal)> {
     // Split format: <account>:<amount>
@@ -645,13 +684,33 @@ fn maybe_confirm_and_insert(db: &Db, event_id: Uuid, payload: &EventPayload, con
     let mut payload = payload.clone();
     let provider = payload.rate_context.provider.clone();
 
-    if provider.is_some() && payload.rate_context.override_rate.is_none() && payload.rate_context.quote.is_some() {
+    if provider.is_some() && payload.rate_context.override_rate.is_none() && payload.rate_context.base.is_some() && payload.rate_context.quote.is_some() {
         let rate = prompt_decimal(&format!(
-            "Enter rate for {} (quote per base) or blank to skip: ",
-            provider.clone().unwrap_or_else(|| "@provider".to_string())
+            "Enter rate for {} ({} per {}) or blank to skip: ",
+            provider.clone().unwrap_or_else(|| "@provider".to_string()),
+            payload.rate_context.quote.as_deref().unwrap_or("quote"),
+            payload.rate_context.base.as_deref().unwrap_or("base"),
         ))?;
         if let Some(rate) = rate {
             payload.rate_context.override_rate = Some(rate);
+        }
+    }
+
+    // Preview (best-effort) when we have enough information.
+    if let (Some(provider), Some(rate), Some(base), Some(quote)) = (
+        provider.clone(),
+        payload.rate_context.override_rate,
+        payload.rate_context.base.clone(),
+        payload.rate_context.quote.clone(),
+    ) {
+        if let Some(quote_amount) = quote_amount_from_postings(&payload.postings, &quote) {
+            if !rate.is_zero() {
+                let value = (quote_amount / rate).round_dp(2);
+                eprintln!(
+                    "{} rate is {}. Transaction value: {} {}.",
+                    provider, rate, value, base
+                );
+            }
         }
     }
 
@@ -661,6 +720,38 @@ fn maybe_confirm_and_insert(db: &Db, event_id: Uuid, payload: &EventPayload, con
 
     db.insert_event(event_id, &payload)?;
     Ok(())
+}
+
+fn quote_amount_from_postings(postings: &[Posting], quote_commodity: &str) -> Option<Decimal> {
+    // Prefer the outgoing amount in quote commodity (negative postings).
+    let mut out = Decimal::ZERO;
+    for p in postings {
+        if p.commodity != quote_commodity {
+            continue;
+        }
+        if p.amount.is_sign_negative() {
+            out += -p.amount;
+        }
+    }
+    if out > Decimal::ZERO {
+        return Some(out);
+    }
+
+    // Fall back to incoming amount in quote commodity (positive postings).
+    let mut incoming = Decimal::ZERO;
+    for p in postings {
+        if p.commodity != quote_commodity {
+            continue;
+        }
+        if p.amount.is_sign_positive() {
+            incoming += p.amount;
+        }
+    }
+    if incoming > Decimal::ZERO {
+        Some(incoming)
+    } else {
+        None
+    }
 }
 
 fn prompt_yes_no(prompt: &str) -> Result<bool> {

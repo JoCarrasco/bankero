@@ -42,7 +42,7 @@ As of 2026-02-25:
 
 Next up (in PRD order):
 
-- [ ] Align CLI grammar with all PRD examples (notably `buy 500 USD --from ... --to ...` split form without a payee argument)
+- [ ] Align CLI grammar with all PRD examples (remaining gaps are mostly around `--confirm` preview semantics and basis/provider behavior)
 - [ ] Provider resolution and time-based conversion engine (deterministic `@provider` + `@provider:rate` semantics)
 - [ ] `--confirm` flows that preview computed conversions/basis before writing
 - [ ] Monthly budgets + effective balance (actual vs reserved vs effective)

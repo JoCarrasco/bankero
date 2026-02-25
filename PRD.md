@@ -566,7 +566,7 @@ Milestone tracking (as of 2026-02-25):
 - [ ] 2. Actions: `deposit`, `move`, `buy`, `sell` + `--confirm` flows
   - [x] Core actions write immutable events: `deposit`, `move`, `buy`, `sell`, `tag`
   - [ ] `--confirm` flow matches PRD intent (rate fetch/preview + confirmation)
-  - [ ] CLI grammar fully matches section 9.4 (notably `buy` split form without payee)
+  - [x] CLI grammar matches section 9.4 for `buy` split form (no payee)
 
 - [ ] 3. Providers + overrides (`@provider`, `@provider:rate`) + time-based conversion
 

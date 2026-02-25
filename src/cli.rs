@@ -1,5 +1,6 @@
 use crate::domain::ProviderToken;
 use clap::{Args, Parser, Subcommand};
+use rust_decimal::Decimal;
 
 #[derive(Debug, Parser)]
 #[command(name = "bankero")]
@@ -77,9 +78,6 @@ pub struct DepositArgs {
 
     #[command(flatten)]
     pub common: CommonEventFlags,
-
-    #[arg(trailing_var_arg = true)]
-    pub extra: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -96,9 +94,14 @@ pub struct MoveArgs {
     #[command(flatten)]
     pub common: CommonEventFlags,
 
-    /// Trailing args to support: <to_amount> <to_commodity> @provider or @provider alone
-    #[arg(trailing_var_arg = true)]
-    pub extra: Vec<String>,
+    /// Optional tail supporting same- or cross-currency moves.
+    ///
+    /// Supported forms:
+    /// - same-currency: (no tail)
+    /// - same-currency with provider context: `@provider` or `@provider:rate`
+    /// - cross-currency: `<to_amount> <to_commodity> [@provider[:rate]]`
+    #[arg(num_args = 0..=3)]
+    pub tail: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -126,9 +129,8 @@ pub struct BuyArgs {
     #[command(flatten)]
     pub common: CommonEventFlags,
 
-    /// Trailing args to support provider tokens like @bcv
-    #[arg(trailing_var_arg = true)]
-    pub extra: Vec<String>,
+    /// Optional provider token like "@bcv".
+    pub provider: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -145,9 +147,14 @@ pub struct SellArgs {
     #[command(flatten)]
     pub common: CommonEventFlags,
 
-    /// Trailing args to support: <to_amount> <to_commodity> @provider
-    #[arg(trailing_var_arg = true)]
-    pub extra: Vec<String>,
+    /// Required quote amount (e.g., the VES received).
+    pub to_amount: Decimal,
+
+    /// Required quote commodity (e.g., VES).
+    pub to_commodity: String,
+
+    /// Optional provider token like "@binance".
+    pub provider: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -310,11 +317,6 @@ pub struct PiggyArgs {
     pub cmd: PiggyCmd,
 }
 
-pub fn find_provider_token(extra: &[String]) -> Option<ProviderToken> {
-    for token in extra {
-        if let Some(p) = crate::domain::parse_provider_token(token) {
-            return Some(p);
-        }
-    }
-    None
+pub fn parse_provider_opt(raw: &Option<String>) -> Option<ProviderToken> {
+    raw.as_deref().and_then(crate::domain::parse_provider_token)
 }
