@@ -3,7 +3,7 @@ mod config;
 mod db;
 mod domain;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use clap::Parser;
 use rust_decimal::Decimal;
@@ -11,11 +11,11 @@ use std::collections::BTreeMap;
 use std::io::{self, Write};
 use uuid::Uuid;
 
-use crate::cli::{parse_provider_opt, Cli, Command, ProjectCmd, WsCmd};
-use crate::config::{app_paths, load_or_init_config, now_utc, write_config, AppConfig};
+use crate::cli::{Cli, Command, ProjectCmd, WsCmd, parse_provider_opt};
+use crate::config::{AppConfig, app_paths, load_or_init_config, now_utc, write_config};
 use crate::db::Db;
 use crate::domain::{
-    parse_basis_arg, BasisContext, EventPayload, Posting, ProviderToken, RateContext, StoredEvent,
+    BasisContext, EventPayload, Posting, ProviderToken, RateContext, StoredEvent, parse_basis_arg,
 };
 
 fn main() {
@@ -48,7 +48,17 @@ fn run() -> Result<()> {
         Command::Deposit(args) => {
             let confirm = args.common.confirm;
             let event_id = Uuid::new_v4();
-            let payload = build_deposit_event(&cfg, "deposit", event_id, args.amount, args.commodity, args.from, args.to, None, args.common)?;
+            let payload = build_deposit_event(
+                &cfg,
+                "deposit",
+                event_id,
+                args.amount,
+                args.commodity,
+                args.from,
+                args.to,
+                None,
+                args.common,
+            )?;
             maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
             println!("Wrote event {event_id} to {}", db_path.display());
         }
@@ -122,7 +132,8 @@ fn run() -> Result<()> {
         Command::Tag(args) => {
             let confirm = args.common.confirm;
             let event_id = Uuid::new_v4();
-            let payload = build_tag_event(&cfg, event_id, args.target, args.set_basis, args.common)?;
+            let payload =
+                build_tag_event(&cfg, event_id, args.target, args.set_basis, args.common)?;
             maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
             println!("Wrote event {event_id} to {}", db_path.display());
         }
@@ -138,7 +149,11 @@ fn run() -> Result<()> {
         Command::Budget(_cmd) => {
             eprintln!("budget commands are not implemented yet (Milestone 6)");
         }
-        Command::Task(_) | Command::Workflow(_) | Command::Login | Command::Sync(_) | Command::Piggy(_) => {
+        Command::Task(_)
+        | Command::Workflow(_)
+        | Command::Login
+        | Command::Sync(_)
+        | Command::Piggy(_) => {
             eprintln!("This command is a stub for later milestones.");
         }
         Command::Ws(_) | Command::Project(_) => {
@@ -149,7 +164,12 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn handle_ws(cmd: WsCmd, paths: &crate::config::AppPaths, cfg: &mut AppConfig, cfg_path: &std::path::Path) -> Result<()> {
+fn handle_ws(
+    cmd: WsCmd,
+    paths: &crate::config::AppPaths,
+    cfg: &mut AppConfig,
+    cfg_path: &std::path::Path,
+) -> Result<()> {
     match cmd {
         WsCmd::Check => {
             println!("You are currently in workspace: {}", cfg.current_workspace);
@@ -171,7 +191,12 @@ fn handle_ws(cmd: WsCmd, paths: &crate::config::AppPaths, cfg: &mut AppConfig, c
     Ok(())
 }
 
-fn handle_project(cmd: ProjectCmd, paths: &crate::config::AppPaths, cfg: &mut AppConfig, cfg_path: &std::path::Path) -> Result<()> {
+fn handle_project(
+    cmd: ProjectCmd,
+    paths: &crate::config::AppPaths,
+    cfg: &mut AppConfig,
+    cfg_path: &std::path::Path,
+) -> Result<()> {
     // For now projects are simple names stored in config; later they'll be persisted per-workspace.
     let (db, _) = Db::open(paths, &cfg.current_workspace)?;
     match cmd {
@@ -209,7 +234,9 @@ fn parse_rfc3339_or_now(raw: Option<&str>) -> Result<DateTime<Utc>> {
     }
 }
 
-fn parse_move_tail(tail: &[String]) -> Result<(Option<Decimal>, Option<String>, Option<ProviderToken>)> {
+fn parse_move_tail(
+    tail: &[String],
+) -> Result<(Option<Decimal>, Option<String>, Option<ProviderToken>)> {
     match tail.len() {
         0 => Ok((None, None, None)),
         1 => {
@@ -243,7 +270,10 @@ fn parse_move_tail(tail: &[String]) -> Result<(Option<Decimal>, Option<String>, 
     }
 }
 
-fn parse_as_of(common: &crate::cli::CommonEventFlags, effective_at: DateTime<Utc>) -> Result<DateTime<Utc>> {
+fn parse_as_of(
+    common: &crate::cli::CommonEventFlags,
+    effective_at: DateTime<Utc>,
+) -> Result<DateTime<Utc>> {
     if let Some(as_of) = &common.as_of {
         let dt = DateTime::parse_from_rfc3339(as_of)
             .with_context(|| format!("Invalid RFC3339 timestamp for --as-of: {as_of}"))?
@@ -348,7 +378,11 @@ fn build_move_event(
 
     let (to_amount, to_commodity, inferred_rate) = match (to_amount, to_commodity) {
         (Some(to_amount), Some(c)) => {
-            let inferred_rate = if amount.is_zero() { None } else { Some(to_amount / amount) };
+            let inferred_rate = if amount.is_zero() {
+                None
+            } else {
+                Some(to_amount / amount)
+            };
             (Some(to_amount), Some(c), inferred_rate)
         }
         _ => (None, None, None),
@@ -547,7 +581,11 @@ fn build_sell_event(
 
     let from_account = from.unwrap_or_else(|| format!("assets:{}", commodity.to_ascii_lowercase()));
 
-    let inferred_rate = if amount.is_zero() { None } else { Some(to_amount / amount) };
+    let inferred_rate = if amount.is_zero() {
+        None
+    } else {
+        Some(to_amount / amount)
+    };
 
     let mut p = provider;
     if inferred_rate.is_some() {
@@ -675,7 +713,13 @@ fn parse_split_to(raw: &str, commodity: &str) -> Result<(String, Decimal)> {
     Ok((account.to_string(), amount))
 }
 
-fn maybe_confirm_and_insert(db: &Db, cfg: &AppConfig, event_id: Uuid, payload: &EventPayload, confirm: bool) -> Result<()> {
+fn maybe_confirm_and_insert(
+    db: &Db,
+    cfg: &AppConfig,
+    event_id: Uuid,
+    payload: &EventPayload,
+    confirm: bool,
+) -> Result<()> {
     if !confirm {
         db.insert_event(event_id, payload)?;
         return Ok(());
@@ -684,7 +728,11 @@ fn maybe_confirm_and_insert(db: &Db, cfg: &AppConfig, event_id: Uuid, payload: &
     let mut payload = payload.clone();
     let provider = payload.rate_context.provider.clone();
 
-    if provider.is_some() && payload.rate_context.override_rate.is_none() && payload.rate_context.base.is_some() && payload.rate_context.quote.is_some() {
+    if provider.is_some()
+        && payload.rate_context.override_rate.is_none()
+        && payload.rate_context.base.is_some()
+        && payload.rate_context.quote.is_some()
+    {
         let rate = prompt_decimal(&format!(
             "Enter rate for {} ({} per {}) or blank to skip: ",
             provider.clone().unwrap_or_else(|| "@provider".to_string()),
@@ -822,7 +870,10 @@ fn print_balance(events: &[StoredEvent], account_prefix: Option<&str>) -> Result
     Ok(())
 }
 
-fn filter_events(events: &[StoredEvent], args: &crate::cli::ReportArgs) -> Result<Vec<StoredEvent>> {
+fn filter_events(
+    events: &[StoredEvent],
+    args: &crate::cli::ReportArgs,
+) -> Result<Vec<StoredEvent>> {
     let mut out = Vec::new();
 
     let month_range = if let Some(m) = &args.month {
@@ -886,7 +937,12 @@ fn print_report(events: &[StoredEvent]) {
         return;
     }
     for e in events {
-        println!("{}\t{}\t{}", e.effective_at.to_rfc3339(), e.action, e.event_id);
+        println!(
+            "{}\t{}\t{}",
+            e.effective_at.to_rfc3339(),
+            e.action,
+            e.event_id
+        );
     }
 }
 
@@ -899,12 +955,23 @@ fn parse_month_range(raw: &str) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
     if !(1..=12).contains(&month) {
         return Err(anyhow!("Invalid month value"));
     }
-    let start_date = NaiveDate::from_ymd_opt(year, month, 1).ok_or_else(|| anyhow!("Invalid date"))?;
-    let start = Utc.from_utc_datetime(&NaiveDateTime::new(start_date, NaiveTime::from_hms_opt(0, 0, 0).unwrap()));
-    let (next_year, next_month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
-    let next_start_date = NaiveDate::from_ymd_opt(next_year, next_month, 1).ok_or_else(|| anyhow!("Invalid date"))?;
-    let end = Utc.from_utc_datetime(&NaiveDateTime::new(next_start_date, NaiveTime::from_hms_opt(0, 0, 0).unwrap()))
-        - chrono::Duration::seconds(1);
+    let start_date =
+        NaiveDate::from_ymd_opt(year, month, 1).ok_or_else(|| anyhow!("Invalid date"))?;
+    let start = Utc.from_utc_datetime(&NaiveDateTime::new(
+        start_date,
+        NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+    ));
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    let next_start_date =
+        NaiveDate::from_ymd_opt(next_year, next_month, 1).ok_or_else(|| anyhow!("Invalid date"))?;
+    let end = Utc.from_utc_datetime(&NaiveDateTime::new(
+        next_start_date,
+        NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+    )) - chrono::Duration::seconds(1);
     Ok((start, end))
 }
 
@@ -914,7 +981,13 @@ fn parse_date_range(raw: &str) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
         .ok_or_else(|| anyhow!("Invalid --range. Expected YYYY-MM-DD..YYYY-MM-DD"))?;
     let start = NaiveDate::parse_from_str(start, "%Y-%m-%d")?;
     let end = NaiveDate::parse_from_str(end, "%Y-%m-%d")?;
-    let start_dt = Utc.from_utc_datetime(&NaiveDateTime::new(start, NaiveTime::from_hms_opt(0, 0, 0).unwrap()));
-    let end_dt = Utc.from_utc_datetime(&NaiveDateTime::new(end, NaiveTime::from_hms_opt(23, 59, 59).unwrap()));
+    let start_dt = Utc.from_utc_datetime(&NaiveDateTime::new(
+        start,
+        NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+    ));
+    let end_dt = Utc.from_utc_datetime(&NaiveDateTime::new(
+        end,
+        NaiveTime::from_hms_opt(23, 59, 59).unwrap(),
+    ));
     Ok((start_dt, end_dt))
 }

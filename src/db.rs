@@ -1,8 +1,8 @@
-use crate::config::{workspace_slug, AppPaths};
+use crate::config::{AppPaths, workspace_slug};
 use crate::domain::{EventPayload, StoredEvent};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;

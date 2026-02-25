@@ -132,7 +132,13 @@ fn report_filters_by_month_category_and_tag() {
 
     let out_cat = run_ok_out(
         &home,
-        &["report", "--month", "2026-02", "--category", "income:freelance"],
+        &[
+            "report",
+            "--month",
+            "2026-02",
+            "--category",
+            "income:freelance",
+        ],
     );
     assert!(out_cat.contains("\tdeposit\t"));
     assert!(!out_cat.contains("\tmove\t"));
