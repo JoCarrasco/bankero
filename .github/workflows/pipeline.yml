@@ -1,17 +1,67 @@
-name: Release
+name: Pipeline
 
 on:
   push:
+    branches: [ main ]
     tags:
       - 'v*'
+  pull_request:
+  schedule:
+    - cron: '15 2 * * *'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  build_deb_and_publish_apt:
+  qa:
+    name: QA (fmt, test, clippy, coverage)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install llvm-tools
+        run: rustup component add llvm-tools-preview
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Test
+        env:
+          RUST_BACKTRACE: 1
+        run: cargo test --locked --all-targets
+
+      - name: Clippy (correctness + suspicious)
+        run: cargo clippy --locked --all-targets -- -D clippy::correctness -D clippy::suspicious
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+
+      - name: Coverage summary
+        run: cargo llvm-cov --locked --summary-only | tee coverage-summary.txt
+
+      - name: Upload coverage summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage-summary.txt
+
+  release:
+    name: Release (.deb + apt repo + GitHub Release)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [qa]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -26,12 +76,6 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
-
-      - name: Format check
-        run: cargo fmt --check
-
-      - name: Test
-        run: cargo test --locked
 
       - name: Install cargo-deb
         run: cargo install cargo-deb --locked
