@@ -87,8 +87,8 @@ bankero --help
 
 - The GitHub Actions release workflow expects repository secrets:
 	- `APT_GPG_PRIVATE_KEY` (ASCII-armored private key)
-	- `APT_GPG_PASSPHRASE`
-- You must also publish the public key at `apt/public.gpg` on GitHub Pages.
+	- `APT_GPG_PASSPHRASE` (optional; only needed if the private key is passphrase-protected)
+- The workflow exports the public key automatically to `https://jocarrasco.github.io/bankero/apt/public.gpg`.
 
 ## Concepts
 

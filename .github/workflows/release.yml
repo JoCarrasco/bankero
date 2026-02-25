@@ -65,17 +65,16 @@ jobs:
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
-          if [ -z "${APT_GPG_PASSPHRASE}" ]; then
-            echo "Missing secret APT_GPG_PASSPHRASE" >&2
-            exit 1
-          fi
-
           rel="apt-repo/dists/stable/Release"
-          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
-            --detach-sign -o "${rel}.gpg" "${rel}"
-
-          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
-            --clearsign -o "apt-repo/dists/stable/InRelease" "${rel}"
+          if [ -n "${APT_GPG_PASSPHRASE:-}" ]; then
+            gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+              --detach-sign -o "${rel}.gpg" "${rel}"
+            gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+              --clearsign -o "apt-repo/dists/stable/InRelease" "${rel}"
+          else
+            gpg --batch --yes --detach-sign -o "${rel}.gpg" "${rel}"
+            gpg --batch --yes --clearsign -o "apt-repo/dists/stable/InRelease" "${rel}"
+          fi
 
       - name: Publish apt repo to GitHub Pages branch
         uses: peaceiris/actions-gh-pages@v4

@@ -1,1 +1,4 @@
 /target
+
+# Local-only signing keys for APT repo publishing
+/packaging/apt/keys/
