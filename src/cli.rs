@@ -47,6 +47,10 @@ Same-currency move:
 Cross-currency move:
     bankero move 100 USD --from assets:usd --to assets:ves 3600 VES
 
+Cross-currency move (compute quote amount from stored provider rate):
+    bankero rate set @bcv USD VES 45.2 --as-of 2026-02-25T12:00:00Z
+    bankero move 100 USD --from assets:usd --to assets:ves VES @bcv
+
 Provider context (used in --confirm preview for value/rate):
     bankero move 100 USD --from assets:usd --to assets:ves 3600 VES @binance --confirm
 "#
@@ -420,7 +424,8 @@ pub struct MoveArgs {
     /// Supported forms:
     /// - same-currency: (no tail)
     /// - same-currency with provider context: `@provider` or `@provider:rate`
-    /// - cross-currency: `<to_amount> <to_commodity> [@provider[:rate]]`
+    /// - cross-currency (explicit quote): `<to_amount> <to_commodity> [@provider[:rate]]`
+    /// - cross-currency (computed quote): `<to_commodity> @provider[:rate]`
     #[arg(num_args = 0..=3)]
     pub tail: Vec<String>,
 }

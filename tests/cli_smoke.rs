@@ -84,6 +84,40 @@ fn deposit_and_move_write_events_and_balance_rebuilds() {
 }
 
 #[test]
+fn move_can_compute_quote_amount_from_stored_rate() {
+    let (home, _cmd) = cmd_with_home();
+
+    let t = "2026-02-25T12:00:00Z";
+
+    run_ok(
+        &home,
+        &["rate", "set", "@bcv", "USD", "VES", "45.2", "--as-of", t],
+    );
+
+    // Computed cross-currency move: only provide destination commodity + provider.
+    run_ok(
+        &home,
+        &[
+            "move",
+            "100",
+            "USD",
+            "--from",
+            "assets:usd",
+            "--to",
+            "assets:ves",
+            "VES",
+            "@bcv",
+            "--effective-at",
+            t,
+        ],
+    );
+
+    let out = run_ok_out(&home, &["balance"]);
+    assert!(out.contains("assets:usd\tUSD\t-100"));
+    assert!(out.contains("assets:ves\tVES\t4520"));
+}
+
+#[test]
 fn report_filters_by_month_category_and_tag() {
     let (home, _cmd) = cmd_with_home();
 

@@ -66,6 +66,44 @@ fn run() -> Result<()> {
             let (to_amount, to_commodity, provider) = parse_move_tail(&args.tail)?;
             let confirm = args.common.confirm;
             let event_id = Uuid::new_v4();
+
+            // If the user supplied only a destination commodity + provider, compute the quote amount.
+            let (to_amount, provider) = match (to_amount, to_commodity.as_ref(), provider) {
+                (None, Some(to_commodity), Some(mut provider)) => {
+                    let amount = parse_decimal(args.amount.clone(), "amount")?;
+                    let effective_at = parse_rfc3339_or_now(args.common.effective_at.as_deref())?;
+                    let as_of = parse_as_of(&args.common, effective_at)?;
+
+                    let base = args.commodity.to_ascii_uppercase();
+                    let quote = to_commodity.to_ascii_uppercase();
+
+                    let rate = if let Some(r) = provider.override_rate {
+                        r
+                    } else {
+                        let Some((_found_as_of, r)) =
+                            db.get_rate_as_of(&provider.provider, &base, &quote, as_of)?
+                        else {
+                            return Err(anyhow!(
+                                "No stored rate for @{} {} per {} at or before {}. Set one with: bankero rate set @{} {} {} <rate> --as-of <rfc3339>",
+                                provider.provider,
+                                quote,
+                                base,
+                                as_of.to_rfc3339(),
+                                provider.provider,
+                                base,
+                                quote,
+                            ));
+                        };
+                        r
+                    };
+
+                    provider.override_rate = Some(rate);
+                    let computed_to_amount = amount * rate;
+                    (Some(computed_to_amount), Some(provider))
+                }
+                (to_amount, _, provider) => (to_amount, provider),
+            };
+
             let payload = build_move_event(
                 &cfg,
                 event_id,
@@ -317,9 +355,22 @@ fn parse_move_tail(
             Ok((None, None, Some(provider)))
         }
         2 => {
-            let to_amount = parse_decimal(tail[0].clone(), "to_amount")?;
-            let to_commodity = tail[1].clone();
-            Ok((Some(to_amount), Some(to_commodity), None))
+            // Either:
+            // - explicit quote: <to_amount> <to_commodity>
+            // - computed quote: <to_commodity> @provider[:rate]
+            if let Ok(to_amount) = parse_decimal(tail[0].clone(), "to_amount") {
+                let to_commodity = tail[1].clone();
+                return Ok((Some(to_amount), Some(to_commodity), None));
+            }
+
+            let to_commodity = tail[0].clone();
+            let provider = crate::domain::parse_provider_token(&tail[1]).ok_or_else(|| {
+                anyhow!(
+                    "Invalid move tail provider. Expected @provider or @provider:rate, got: {}",
+                    tail[1]
+                )
+            })?;
+            Ok((None, Some(to_commodity), Some(provider)))
         }
         3 => {
             let to_amount = parse_decimal(tail[0].clone(), "to_amount")?;

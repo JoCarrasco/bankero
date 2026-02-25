@@ -41,11 +41,12 @@ As of 2026-02-25:
 - [x] Integration tests to freeze current CLI behavior (runs against a temporary `BANKERO_HOME`)
 - [x] Offline provider rate store (`bankero rate set|get|list`)
 - [x] `--confirm` uses stored provider rates and prints a value preview (`move ... @provider --confirm`)
+- [x] Computed cross-currency `move` using stored rates (`move 100 USD ... VES @provider`)
 - [x] `--confirm` prompts to materialize basis when using `-b @provider`
 
 Next up (in PRD order):
 
-- [ ] Provider resolution and time-based conversion engine (deterministic `@provider` + `@provider:rate` semantics)
+- [ ] Full provider-backed conversion engine (compute missing legs, deterministic provider logic)
 - [ ] `--confirm` flows that preview computed conversions/basis before writing
 - [ ] Monthly budgets + effective balance (actual vs reserved vs effective)
 - [ ] Piggy banks (savings goals)
@@ -216,6 +217,13 @@ bankero deposit 1500 USD --to assets:savings --from income:freelance -m "Web pro
 
 ```bash
 bankero move 100 USD --from assets:wells-fargo --to assets:banesco 42000 VES @manual:420
+```
+
+2a) Multi-currency transfer (stored provider rate)
+
+```bash
+bankero rate set @bcv USD VES 45.2 --as-of 2026-02-25T12:00:00Z
+bankero move 100 USD --from assets:wells-fargo --to assets:banesco VES @bcv
 ```
 
 3) Purchasing with auto-rate (BCV)
