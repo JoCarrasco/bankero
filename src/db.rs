@@ -192,6 +192,96 @@ impl Db {
         Ok(out)
     }
 
+    pub fn list_latest_rates_for_provider(
+        &self,
+        provider: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String, DateTime<Utc>, Decimal)>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT r.base, r.quote, r.as_of, r.rate
+            FROM rates r
+            WHERE r.provider = ?1
+              AND r.as_of = (
+                SELECT MAX(r2.as_of)
+                FROM rates r2
+                WHERE r2.provider = r.provider
+                  AND r2.base = r.base
+                  AND r2.quote = r.quote
+              )
+            ORDER BY r.base ASC, r.quote ASC
+            LIMIT ?2
+            "#,
+        )?;
+
+        let rows = stmt.query_map(params![provider, limit as i64], |row| {
+            let base: String = row.get(0)?;
+            let quote: String = row.get(1)?;
+            let as_of_raw: String = row.get(2)?;
+            let rate_raw: String = row.get(3)?;
+            Ok((base, quote, as_of_raw, rate_raw))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (base, quote, as_of_raw, rate_raw) = row?;
+            let as_of = DateTime::parse_from_rfc3339(&as_of_raw)
+                .context("Invalid as_of in rates table")?
+                .with_timezone(&Utc);
+            let rate = rate_raw
+                .parse::<Decimal>()
+                .context("Invalid decimal rate in rates table")?;
+            out.push((base, quote, as_of, rate));
+        }
+        Ok(out)
+    }
+
+    pub fn list_latest_rates_for_base(
+        &self,
+        provider: &str,
+        base: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String, DateTime<Utc>, Decimal)>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT r.base, r.quote, r.as_of, r.rate
+            FROM rates r
+            WHERE r.provider = ?1
+              AND r.base = ?2
+              AND r.as_of = (
+                SELECT MAX(r2.as_of)
+                FROM rates r2
+                WHERE r2.provider = r.provider
+                  AND r2.base = r.base
+                  AND r2.quote = r.quote
+              )
+            ORDER BY r.quote ASC
+            LIMIT ?3
+            "#,
+        )?;
+
+        let rows = stmt.query_map(params![provider, base, limit as i64], |row| {
+            let base: String = row.get(0)?;
+            let quote: String = row.get(1)?;
+            let as_of_raw: String = row.get(2)?;
+            let rate_raw: String = row.get(3)?;
+            Ok((base, quote, as_of_raw, rate_raw))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (base, quote, as_of_raw, rate_raw) = row?;
+            let as_of = DateTime::parse_from_rfc3339(&as_of_raw)
+                .context("Invalid as_of in rates table")?
+                .with_timezone(&Utc);
+            let rate = rate_raw
+                .parse::<Decimal>()
+                .context("Invalid decimal rate in rates table")?;
+            out.push((base, quote, as_of, rate));
+        }
+        Ok(out)
+    }
+
     pub fn insert_event(&self, id: Uuid, payload: &EventPayload) -> Result<()> {
         let json = serde_json::to_string(payload)?;
         self.conn.execute(

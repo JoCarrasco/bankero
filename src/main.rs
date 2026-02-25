@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod db;
 mod domain;
+mod upgrade;
 
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
@@ -33,176 +34,176 @@ fn run() -> Result<()> {
     match cli.command {
         Command::Ws(args) => {
             handle_ws(args.cmd, &paths, &mut cfg, &cfg_path)?;
-            return Ok(());
+            Ok(())
         }
         Command::Project(args) => {
             handle_project(args.cmd, &paths, &mut cfg, &cfg_path)?;
-            return Ok(());
+            Ok(())
         }
-        _ => {}
-    }
+        Command::Upgrade(args) => crate::upgrade::handle_upgrade(args),
+        cmd => {
+            let (db, db_path) = Db::open(&paths, &cfg.current_workspace)?;
 
-    let (db, db_path) = Db::open(&paths, &cfg.current_workspace)?;
+            match cmd {
+                Command::Deposit(args) => {
+                    let confirm = args.common.confirm;
+                    let event_id = Uuid::new_v4();
+                    let payload = build_deposit_event(
+                        &cfg,
+                        "deposit",
+                        event_id,
+                        args.amount,
+                        args.commodity,
+                        args.from,
+                        args.to,
+                        None,
+                        args.common,
+                    )?;
+                    maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
+                    println!("Wrote event {event_id} to {}", db_path.display());
+                }
+                Command::Move(args) => {
+                    let (to_amount, to_commodity, provider) = parse_move_tail(&args.tail)?;
+                    let confirm = args.common.confirm;
+                    let event_id = Uuid::new_v4();
 
-    match cli.command {
-        Command::Deposit(args) => {
-            let confirm = args.common.confirm;
-            let event_id = Uuid::new_v4();
-            let payload = build_deposit_event(
-                &cfg,
-                "deposit",
-                event_id,
-                args.amount,
-                args.commodity,
-                args.from,
-                args.to,
-                None,
-                args.common,
-            )?;
-            maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
-            println!("Wrote event {event_id} to {}", db_path.display());
-        }
-        Command::Move(args) => {
-            let (to_amount, to_commodity, provider) = parse_move_tail(&args.tail)?;
-            let confirm = args.common.confirm;
-            let event_id = Uuid::new_v4();
+                    // If the user supplied only a destination commodity + provider, compute the quote amount.
+                    let (to_amount, provider) = match (to_amount, to_commodity.as_ref(), provider) {
+                        (None, Some(to_commodity), Some(mut provider)) => {
+                            let amount = parse_decimal(args.amount.clone(), "amount")?;
+                            let effective_at =
+                                parse_rfc3339_or_now(args.common.effective_at.as_deref())?;
+                            let as_of = parse_as_of(&args.common, effective_at)?;
 
-            // If the user supplied only a destination commodity + provider, compute the quote amount.
-            let (to_amount, provider) = match (to_amount, to_commodity.as_ref(), provider) {
-                (None, Some(to_commodity), Some(mut provider)) => {
-                    let amount = parse_decimal(args.amount.clone(), "amount")?;
-                    let effective_at = parse_rfc3339_or_now(args.common.effective_at.as_deref())?;
-                    let as_of = parse_as_of(&args.common, effective_at)?;
+                            let base = args.commodity.to_ascii_uppercase();
+                            let quote = to_commodity.to_ascii_uppercase();
 
-                    let base = args.commodity.to_ascii_uppercase();
-                    let quote = to_commodity.to_ascii_uppercase();
+                            let rate = if let Some(r) = provider.override_rate {
+                                r
+                            } else {
+                                let Some((_found_as_of, r)) =
+                                    db.get_rate_as_of(&provider.provider, &base, &quote, as_of)?
+                                else {
+                                    return Err(anyhow!(
+                                        "No stored rate for @{} {} per {} at or before {}. Set one with: bankero rate set @{} {} {} <rate> --as-of <rfc3339>",
+                                        provider.provider,
+                                        quote,
+                                        base,
+                                        as_of.to_rfc3339(),
+                                        provider.provider,
+                                        base,
+                                        quote,
+                                    ));
+                                };
+                                r
+                            };
 
-                    let rate = if let Some(r) = provider.override_rate {
-                        r
-                    } else {
-                        let Some((_found_as_of, r)) =
-                            db.get_rate_as_of(&provider.provider, &base, &quote, as_of)?
-                        else {
-                            return Err(anyhow!(
-                                "No stored rate for @{} {} per {} at or before {}. Set one with: bankero rate set @{} {} {} <rate> --as-of <rfc3339>",
-                                provider.provider,
-                                quote,
-                                base,
-                                as_of.to_rfc3339(),
-                                provider.provider,
-                                base,
-                                quote,
-                            ));
-                        };
-                        r
+                            provider.override_rate = Some(rate);
+                            let computed_to_amount = amount * rate;
+                            (Some(computed_to_amount), Some(provider))
+                        }
+                        (to_amount, _, provider) => (to_amount, provider),
                     };
 
-                    provider.override_rate = Some(rate);
-                    let computed_to_amount = amount * rate;
-                    (Some(computed_to_amount), Some(provider))
+                    let payload = build_move_event(
+                        &cfg,
+                        event_id,
+                        args.amount,
+                        args.commodity,
+                        args.from,
+                        args.to,
+                        provider,
+                        to_amount,
+                        to_commodity,
+                        args.common,
+                    )?;
+                    maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
+                    println!("Wrote event {event_id} to {}", db_path.display());
                 }
-                (to_amount, _, provider) => (to_amount, provider),
-            };
+                Command::Buy(args) => {
+                    let provider = parse_provider_opt(&args.provider);
+                    let confirm = args.common.confirm;
+                    let event_id = Uuid::new_v4();
 
-            let payload = build_move_event(
-                &cfg,
-                event_id,
-                args.amount,
-                args.commodity,
-                args.from,
-                args.to,
-                provider,
-                to_amount,
-                to_commodity,
-                args.common,
-            )?;
-            maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
-            println!("Wrote event {event_id} to {}", db_path.display());
-        }
-        Command::Buy(args) => {
-            let provider = parse_provider_opt(&args.provider);
-            let confirm = args.common.confirm;
-            let event_id = Uuid::new_v4();
+                    let (payee, amount, commodity) = if let Some(commodity) = args.commodity {
+                        (
+                            Some(args.payee_or_amount),
+                            args.amount_or_commodity,
+                            commodity,
+                        )
+                    } else {
+                        (None, args.payee_or_amount, args.amount_or_commodity)
+                    };
 
-            let (payee, amount, commodity) = if let Some(commodity) = args.commodity {
-                (
-                    Some(args.payee_or_amount),
-                    args.amount_or_commodity,
-                    commodity,
-                )
-            } else {
-                (None, args.payee_or_amount, args.amount_or_commodity)
-            };
+                    let payload = build_buy_event(
+                        &cfg,
+                        event_id,
+                        payee,
+                        amount,
+                        commodity,
+                        args.from,
+                        args.to_splits,
+                        provider,
+                        args.common,
+                    )?;
+                    maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
+                    println!("Wrote event {event_id} to {}", db_path.display());
+                }
+                Command::Sell(args) => {
+                    let provider = parse_provider_opt(&args.provider);
+                    let confirm = args.common.confirm;
+                    let event_id = Uuid::new_v4();
+                    let payload = build_sell_event(
+                        &cfg,
+                        event_id,
+                        args.amount,
+                        args.commodity,
+                        args.from,
+                        args.to,
+                        args.to_amount,
+                        args.to_commodity,
+                        provider,
+                        args.common,
+                    )?;
+                    maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
+                    println!("Wrote event {event_id} to {}", db_path.display());
+                }
+                Command::Tag(args) => {
+                    let confirm = args.common.confirm;
+                    let event_id = Uuid::new_v4();
+                    let payload =
+                        build_tag_event(&cfg, event_id, args.target, args.set_basis, args.common)?;
+                    maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
+                    println!("Wrote event {event_id} to {}", db_path.display());
+                }
+                Command::Balance(args) => {
+                    let events = db.list_events()?;
+                    print_balance(&db, &events, args.account.as_deref(), args.month.as_deref())?;
+                }
+                Command::Report(args) => {
+                    let events = db.list_events()?;
+                    let filtered = filter_events(&events, &args)?;
+                    print_report(&filtered);
+                }
+                Command::Rate(args) => {
+                    handle_rate(&db, args.command)?;
+                }
+                Command::Budget(args) => {
+                    handle_budget(&db, args.cmd)?;
+                }
+                Command::Task(_)
+                | Command::Workflow(_)
+                | Command::Login
+                | Command::Sync(_)
+                | Command::Piggy(_) => {
+                    eprintln!("This command is a stub for later milestones.");
+                }
+                Command::Ws(_) | Command::Project(_) | Command::Upgrade(_) => unreachable!(),
+            }
 
-            let payload = build_buy_event(
-                &cfg,
-                event_id,
-                payee,
-                amount,
-                commodity,
-                args.from,
-                args.to_splits,
-                provider,
-                args.common,
-            )?;
-            maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
-            println!("Wrote event {event_id} to {}", db_path.display());
-        }
-        Command::Sell(args) => {
-            let provider = parse_provider_opt(&args.provider);
-            let confirm = args.common.confirm;
-            let event_id = Uuid::new_v4();
-            let payload = build_sell_event(
-                &cfg,
-                event_id,
-                args.amount,
-                args.commodity,
-                args.from,
-                args.to,
-                args.to_amount,
-                args.to_commodity,
-                provider,
-                args.common,
-            )?;
-            maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
-            println!("Wrote event {event_id} to {}", db_path.display());
-        }
-        Command::Tag(args) => {
-            let confirm = args.common.confirm;
-            let event_id = Uuid::new_v4();
-            let payload =
-                build_tag_event(&cfg, event_id, args.target, args.set_basis, args.common)?;
-            maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
-            println!("Wrote event {event_id} to {}", db_path.display());
-        }
-        Command::Balance(args) => {
-            let events = db.list_events()?;
-            print_balance(&db, &events, args.account.as_deref(), args.month.as_deref())?;
-        }
-        Command::Report(args) => {
-            let events = db.list_events()?;
-            let filtered = filter_events(&events, &args)?;
-            print_report(&filtered);
-        }
-        Command::Rate(args) => {
-            handle_rate(&db, args.command)?;
-        }
-        Command::Budget(args) => {
-            handle_budget(&db, args.cmd)?;
-        }
-        Command::Task(_)
-        | Command::Workflow(_)
-        | Command::Login
-        | Command::Sync(_)
-        | Command::Piggy(_) => {
-            eprintln!("This command is a stub for later milestones.");
-        }
-        Command::Ws(_) | Command::Project(_) => {
-            unreachable!();
+            Ok(())
         }
     }
-
-    Ok(())
 }
 
 fn normalize_provider(raw: &str) -> String {
@@ -525,18 +526,124 @@ fn handle_rate(db: &Db, cmd: RateCommand) -> Result<()> {
         }
         RateCommand::List(args) => {
             let provider = normalize_provider(&args.provider);
-            let base = args.base.to_ascii_uppercase();
-            let quote = args.quote.to_ascii_uppercase();
-            let rows = db.list_rates(&provider, &base, &quote, 50)?;
-            if rows.is_empty() {
-                println!("(no rates)");
-                return Ok(());
+            let base = args.base.as_ref().map(|b| b.to_ascii_uppercase());
+            let quote = args.quote.as_ref().map(|q| q.to_ascii_uppercase());
+
+            match (base.as_deref(), quote.as_deref()) {
+                (None, None) => {
+                    let rows = db.list_latest_rates_for_provider(&provider, args.limit)?;
+                    if rows.is_empty() {
+                        println!("(no rates)");
+                        return Ok(());
+                    }
+
+                    match args.format {
+                        crate::cli::RateListFormat::Table => {
+                            let mut table_rows = Vec::new();
+                            for (b, q, as_of, rate) in rows {
+                                table_rows.push(vec![b, q, as_of.to_rfc3339(), rate.to_string()]);
+                            }
+                            print_table(&["BASE", "QUOTE", "AS OF", "RATE"], &table_rows);
+                        }
+                        crate::cli::RateListFormat::Tsv => {
+                            for (b, q, as_of, rate) in rows {
+                                println!("{}\t{}\t{}\t{}", b, q, as_of.to_rfc3339(), rate);
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                (Some(base), None) => {
+                    let rows = db.list_latest_rates_for_base(&provider, base, args.limit)?;
+                    if rows.is_empty() {
+                        println!("(no rates)");
+                        return Ok(());
+                    }
+
+                    match args.format {
+                        crate::cli::RateListFormat::Table => {
+                            let mut table_rows = Vec::new();
+                            for (b, q, as_of, rate) in rows {
+                                table_rows.push(vec![b, q, as_of.to_rfc3339(), rate.to_string()]);
+                            }
+                            print_table(&["BASE", "QUOTE", "AS OF", "RATE"], &table_rows);
+                        }
+                        crate::cli::RateListFormat::Tsv => {
+                            for (b, q, as_of, rate) in rows {
+                                println!("{}\t{}\t{}\t{}", b, q, as_of.to_rfc3339(), rate);
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                (Some(base), Some(quote)) => {
+                    let rows = db.list_rates(&provider, base, quote, args.limit)?;
+                    if rows.is_empty() {
+                        println!("(no rates)");
+                        return Ok(());
+                    }
+
+                    match args.format {
+                        crate::cli::RateListFormat::Table => {
+                            let mut table_rows = Vec::new();
+                            for (as_of, rate) in rows {
+                                table_rows.push(vec![as_of.to_rfc3339(), rate.to_string()]);
+                            }
+                            print_table(&["AS OF", "RATE"], &table_rows);
+                        }
+                        crate::cli::RateListFormat::Tsv => {
+                            for (as_of, rate) in rows {
+                                println!("{}\t{}", as_of.to_rfc3339(), rate);
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                (None, Some(_)) => Err(anyhow!(
+                    "Invalid arguments: quote provided without base. Usage: bankero rate list @provider [BASE] [QUOTE]"
+                )),
             }
-            for (as_of, rate) in rows {
-                println!("{}\t{}", as_of.to_rfc3339(), rate);
-            }
-            Ok(())
         }
+    }
+}
+
+fn print_table(headers: &[&str], rows: &[Vec<String>]) {
+    if headers.is_empty() {
+        println!("(no columns)");
+        return;
+    }
+
+    let cols = headers.len();
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+
+    for row in rows {
+        for (i, cell) in row.iter().take(cols).enumerate() {
+            widths[i] = widths[i].max(cell.len());
+        }
+    }
+
+    fn print_row(cells: &[String], widths: &[usize]) {
+        print!("|");
+        for (i, w) in widths.iter().enumerate() {
+            let cell = cells.get(i).map(String::as_str).unwrap_or("");
+            print!(" {:width$} |", cell, width = *w);
+        }
+        println!();
+    }
+
+    fn print_sep(widths: &[usize]) {
+        print!("|");
+        for w in widths {
+            print!("{}|", "-".repeat(w + 2));
+        }
+        println!();
+    }
+
+    let header_cells: Vec<String> = headers.iter().map(|h| h.to_string()).collect();
+    print_row(&header_cells, &widths);
+    print_sep(&widths);
+    for row in rows {
+        print_row(row, &widths);
     }
 }
 

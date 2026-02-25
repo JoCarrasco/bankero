@@ -1,5 +1,5 @@
 use crate::domain::ProviderToken;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use rust_decimal::Decimal;
 
 #[derive(Debug, Parser)]
@@ -164,6 +164,21 @@ Examples:
     Rate(RateArgs),
 
     #[command(
+        about = "Upgrade Bankero (check GitHub releases and update via APT)",
+        long_about = r#"Upgrade Bankero.
+
+Checks the GitHub repository for the latest release tag and can upgrade Bankero
+via the signed APT repository (Debian/Ubuntu).
+
+Examples:
+    bankero upgrade
+    bankero upgrade --apply
+    bankero upgrade --setup-apt --apply
+"#
+    )]
+    Upgrade(UpgradeArgs),
+
+    #[command(
         about = "Budget commands (stub)",
         long_about = r#"Budget commands (stub).
 
@@ -230,6 +245,48 @@ Examples:
     Piggy(PiggyArgs),
 }
 
+#[derive(Debug, Args, Clone)]
+pub struct UpgradeArgs {
+    /// Actually apply the upgrade (runs apt-get commands).
+    #[arg(long)]
+    pub apply: bool,
+
+    /// Configure the APT repo (keyring + sources list) before upgrading.
+    #[arg(long)]
+    pub setup_apt: bool,
+
+    /// Skip the remote GitHub check and only run the local upgrade path.
+    #[arg(long)]
+    pub skip_check: bool,
+
+    /// Pass -y to apt-get.
+    #[arg(long)]
+    pub yes: bool,
+
+    /// APT repo URL.
+    #[arg(long, default_value = "https://jocarrasco.github.io/bankero/apt")]
+    pub repo_url: String,
+
+    /// APT suite name.
+    #[arg(long, default_value = "stable")]
+    pub suite: String,
+
+    /// APT component name.
+    #[arg(long, default_value = "main")]
+    pub component: String,
+
+    /// Keyring path used by APT.
+    #[arg(
+        long,
+        default_value = "/usr/share/keyrings/bankero-archive-keyring.gpg"
+    )]
+    pub keyring_path: String,
+
+    /// Sources list path.
+    #[arg(long, default_value = "/etc/apt/sources.list.d/bankero.list")]
+    pub sources_path: String,
+}
+
 #[derive(Debug, Args)]
 pub struct RateArgs {
     #[command(subcommand)]
@@ -266,11 +323,25 @@ Example:
         about = "List stored rates (newest first)",
         long_about = r#"List stored rates (newest first).
 
+If you provide only a provider, Bankero lists the latest stored rate for each known pair.
+
+If you provide a provider and base, Bankero lists the latest stored rate for each quote.
+
+If you provide a provider, base and quote, Bankero lists the history for that pair.
+
 Example:
+    bankero rate list @bcv
+    bankero rate list @bcv USD
     bankero rate list @bcv USD VES
 "#
     )]
     List(RateListArgs),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
+pub enum RateListFormat {
+    Table,
+    Tsv,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -362,8 +433,20 @@ pub struct RateGetArgs {
 pub struct RateListArgs {
     /// Provider token like "@binance" (the leading '@' is optional).
     pub provider: String,
-    pub base: String,
-    pub quote: String,
+
+    /// Optional base commodity (e.g., USD). If provided without quote, lists latest rates for this base.
+    pub base: Option<String>,
+
+    /// Optional quote commodity (e.g., VES). If provided, base is required.
+    pub quote: Option<String>,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = RateListFormat::Table)]
+    pub format: RateListFormat,
+
+    /// Max rows to print.
+    #[arg(long, default_value_t = 50)]
+    pub limit: usize,
 }
 
 #[derive(Debug, Args)]

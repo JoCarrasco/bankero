@@ -126,6 +126,21 @@ sudo apt-get install bankero
 bankero --help
 ```
 
+### Upgrade
+
+Once installed via APT, you can upgrade with the built-in helper:
+
+```bash
+bankero upgrade
+bankero upgrade --apply
+```
+
+If you haven't configured the repo yet, this will set it up and then upgrade:
+
+```bash
+bankero upgrade --setup-apt --apply
+```
+
 ### Publishing notes
 
 - The GitHub Actions release workflow expects repository secrets:
@@ -243,7 +258,12 @@ If you use `@provider` without an explicit override like `@provider:rate`, you c
 ```bash
 bankero rate set @bcv USD VES 45.2 --as-of 2026-02-25T12:00:00Z
 bankero rate get @bcv USD VES --as-of 2026-02-25T12:00:00Z
-bankero rate list @bcv USD VES
+bankero rate list @bcv          # latest rate for each known pair
+bankero rate list @bcv USD      # latest rate for each quote for this base
+bankero rate list @bcv USD VES  # history for a specific pair
+
+# For script-friendly output:
+bankero rate list @bcv USD VES --format tsv
 ```
 
 ### Usage examples

@@ -171,9 +171,15 @@ fn rate_set_get_list_roundtrip_is_deterministic() {
     );
     assert!(out_get.contains("= 45.2"));
 
-    let out_list = run_ok_out(&home, &["rate", "list", "@bcv", "USD", "VES"]);
+    let out_list = run_ok_out(
+        &home,
+        &["rate", "list", "@bcv", "USD", "VES", "--format", "tsv"],
+    );
     assert!(out_list.contains("2026-02-25T12:00:00+00:00\t45.2"));
     assert!(out_list.contains("2026-02-26T12:00:00+00:00\t46.0"));
+
+    let out_provider_only = run_ok_out(&home, &["rate", "list", "@bcv", "--format", "tsv"]);
+    assert!(out_provider_only.contains("USD\tVES\t2026-02-26T12:00:00+00:00\t46.0"));
 }
 
 #[test]
