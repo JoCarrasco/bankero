@@ -65,12 +65,23 @@ fn run() -> Result<()> {
             let provider = find_provider_token(&args.extra);
             let confirm = args.common.confirm;
             let event_id = Uuid::new_v4();
+
+            let (payee, amount, commodity) = if let Some(commodity) = args.commodity {
+                (
+                    Some(args.payee_or_amount),
+                    args.amount_or_commodity,
+                    commodity,
+                )
+            } else {
+                (None, args.payee_or_amount, args.amount_or_commodity)
+            };
+
             let payload = build_buy_event(
                 &cfg,
                 event_id,
-                args.payee,
-                args.amount,
-                args.commodity,
+                payee,
+                amount,
+                commodity,
                 args.from,
                 args.to_splits,
                 provider,
@@ -358,7 +369,7 @@ fn build_move_event(
 fn build_buy_event(
     cfg: &AppConfig,
     event_id: Uuid,
-    payee: String,
+    payee: Option<String>,
     amount_raw: String,
     commodity: String,
     from: String,
@@ -366,6 +377,7 @@ fn build_buy_event(
     provider: Option<ProviderToken>,
     common: crate::cli::CommonEventFlags,
 ) -> Result<EventPayload> {
+    let payee_for_metadata = payee.clone();
     let amount = parse_decimal(amount_raw, "amount")?;
     let created_at = now_utc();
     let effective_at = parse_rfc3339_or_now(common.effective_at.as_deref())?;
@@ -378,6 +390,9 @@ fn build_buy_event(
     }];
 
     if to_splits.is_empty() {
+        let payee = payee.ok_or_else(|| {
+            anyhow!("buy requires either a payee/target (3-arg form) or at least one --to split (2-arg form)")
+        })?;
         postings.push(Posting {
             account: payee,
             commodity: commodity.clone(),
@@ -423,7 +438,11 @@ fn build_buy_event(
         note: common.note,
         rate_context: build_rate_context(provider, as_of, None, None),
         basis,
-        metadata: serde_json::json!({"event_id": event_id.to_string(), "confirm": common.confirm}),
+        metadata: serde_json::json!({
+            "event_id": event_id.to_string(),
+            "confirm": common.confirm,
+            "payee": payee_for_metadata,
+        }),
     })
 }
 

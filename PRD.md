@@ -530,17 +530,22 @@ Projections MUST be rebuildable from events.
 
 ## 13. Acceptance criteria
 
-- All example commands in section 9.4 produce a stored immutable event.
-- After syncing two devices that created events offline, the merged ledger contains both events and projections match on both devices.
-- Reports filtered by `--tag` and `--category` return consistent results.
-- Budget report shows budget vs actual for a given month.
-- `bankero balance` shows actual balance, reserved (virtual deficits), and effective total.
-- Rebuilding projections from events yields the same balances and reports.
-- Switching workspaces isolates data completely (events and projections do not bleed across).
-- Checking out a project auto-tags subsequent actions to that project.
-- Piggy banks report progress deterministically for a given event stream.
-- Creating a recurrent task and running it produces a workflow run id and an auditable stream of workflow events.
-- A workflow that imports Payoneer transactions appends deterministic ledger events (no duplicates, no lost events) and remains safe under multi-device sync.
+Implementation status (as of 2026-02-25):
+
+- [ ] All example commands in section 9.4 produce a stored immutable event.
+  - Notes: most core examples are supported; remaining gaps are mostly around `--confirm` (preview/fetch semantics) and provider-derived basis.
+- [ ] After syncing two devices that created events offline, the merged ledger contains both events and projections match on both devices.
+- [x] Reports filtered by `--tag` and `--category` return consistent results.
+- [ ] Budget report shows budget vs actual for a given month.
+- [ ] `bankero balance` shows actual balance, reserved (virtual deficits), and effective total.
+  - Notes: current `balance` shows actual (sum of postings) only.
+- [x] Rebuilding projections from events yields the same balances and reports.
+- [x] Switching workspaces isolates data completely (events and projections do not bleed across).
+- [x] Checking out a project auto-tags subsequent actions to that project.
+  - Notes: project is stored on each event payload; project listing/spend rollups are not implemented yet.
+- [ ] Piggy banks report progress deterministically for a given event stream.
+- [ ] Creating a recurrent task and running it produces a workflow run id and an auditable stream of workflow events.
+- [ ] A workflow that imports Payoneer transactions appends deterministic ledger events (no duplicates, no lost events) and remains safe under multi-device sync.
 
 ## 14. Open questions
 
@@ -552,10 +557,24 @@ Projections MUST be rebuildable from events.
 
 ## 15. Milestones
 
-1. Event journal + projections framework
-2. Actions: `deposit`, `move`, `buy`, `sell` + `--confirm` flows
-3. Providers + overrides (`@provider`, `@provider:rate`) + time-based conversion
-4. Basis (`--basis/-b`) with provider computation
-5. Tags/categories + filtering
-6. Monthly budgets + budget reports
-7. Multi-device sync + device login + webhook rules
+Milestone tracking (as of 2026-02-25):
+
+- [x] 1. Event journal + projections framework
+  - [x] SQLite-backed immutable event journal
+  - [x] Deterministic read models by replaying events
+
+- [ ] 2. Actions: `deposit`, `move`, `buy`, `sell` + `--confirm` flows
+  - [x] Core actions write immutable events: `deposit`, `move`, `buy`, `sell`, `tag`
+  - [ ] `--confirm` flow matches PRD intent (rate fetch/preview + confirmation)
+  - [ ] CLI grammar fully matches section 9.4 (notably `buy` split form without payee)
+
+- [ ] 3. Providers + overrides (`@provider`, `@provider:rate`) + time-based conversion
+
+- [ ] 4. Basis (`--basis/-b`) with provider computation
+
+- [ ] 5. Tags/categories + filtering
+  - [x] Tags/categories stored on events and filterable in `report`
+
+- [ ] 6. Monthly budgets + budget reports
+
+- [ ] 7. Multi-device sync + device login + webhook rules

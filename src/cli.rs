@@ -103,11 +103,18 @@ pub struct MoveArgs {
 
 #[derive(Debug, Args)]
 pub struct BuyArgs {
-    /// Payee or target account (e.g., external:traki, assets:new-laptop)
-    pub payee: String,
+    /// Either a payee/target account (3-arg form) OR the amount (2-arg split form).
+    ///
+    /// Supported forms:
+    /// - `bankero buy <payee> <amount> <commodity> --from ...`
+    /// - `bankero buy <amount> <commodity> --from ... --to <account:amount> [--to ...]`
+    pub payee_or_amount: String,
 
-    pub amount: String,
-    pub commodity: String,
+    /// Either the amount (3-arg form) OR the commodity (2-arg split form).
+    pub amount_or_commodity: String,
+
+    /// Present only in the 3-arg form.
+    pub commodity: Option<String>,
 
     #[arg(long)]
     pub from: String,

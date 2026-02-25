@@ -6,7 +6,6 @@ use assert_cmd::prelude::*;
 use std::process::Command;
 
 #[test]
-#[ignore]
 fn prd_example_buy_without_payee_should_work() {
     let home = tempfile::tempdir().expect("tempdir");
 

@@ -28,6 +28,28 @@ Bankero helps you track money movement over time in a way that remains useful of
 - Tag/categorize activity so reports can be filtered
 - Run **recurrent tasks** (cron-like) that trigger webhooks and append workflow events to the ledger
 
+## Roadmap (implementation status)
+
+As of 2026-02-25:
+
+- [x] Rust CLI scaffold (`cargo run -- <command> ...`)
+- [x] Local-first persistence with per-workspace SQLite DB (append-only `events` journal)
+- [x] Core actions write immutable events: `deposit`, `move`, `buy`, `sell`, `tag`
+- [x] Basic read models by replay: `balance` (actual only) and `report` (filters: month/range/account/category/tag/commodity)
+- [x] Workspace switching (`ws add|checkout|check`) with complete data isolation per workspace
+- [x] Project checkout stored in config and recorded on events (project list/spend rollups pending)
+- [x] Integration tests to freeze current CLI behavior (runs against a temporary `BANKERO_HOME`)
+
+Next up (in PRD order):
+
+- [ ] Align CLI grammar with all PRD examples (notably `buy 500 USD --from ... --to ...` split form without a payee argument)
+- [ ] Provider resolution and time-based conversion engine (deterministic `@provider` + `@provider:rate` semantics)
+- [ ] `--confirm` flows that preview computed conversions/basis before writing
+- [ ] Monthly budgets + effective balance (actual vs reserved vs effective)
+- [ ] Piggy banks (savings goals)
+- [ ] Multi-device sync (`login`, `sync status|now`)
+- [ ] Recurrent tasks + workflows + webhook integrations
+
 ## Concepts
 
 - **Workspace**: the highest-level context (e.g., Personal, Business). Switching workspaces swaps the entire local data environment.
