@@ -7,7 +7,7 @@ set -euo pipefail
 #   packaging/apt/build-repo.sh <repo_root> <deb_path> [codename] [component] [arch]
 #
 # Example:
-#   packaging/apt/build-repo.sh apt-repo target/debian/bankero_0.1.0_amd64.deb stable main amd64
+#   packaging/apt/build-repo.sh apt-repo target/debian/bankero_0.0.1_amd64.deb stable main amd64
 
 repo_root="${1:?repo_root required}"
 deb_path="${2:?deb_path required}"
