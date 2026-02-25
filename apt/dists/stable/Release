@@ -1,24 +1,24 @@
 Architectures: amd64
 Codename: stable
 Components: main
-Date: Wed, 25 Feb 2026 19:24:41 +0000
+Date: Wed, 25 Feb 2026 19:51:42 +0000
 Description: Bankero APT repository
 Label: bankero
 Origin: bankero
 Suite: stable
 MD5Sum:
- 66c10dcaccce1e801e6c7dc911569945              174 Release
- dc6908b2b3ffd046bf51c0e5e6cb98fb            19115 main/binary-amd64/Packages
- d1aa3ed2612f495490d9bd773e779acb             7857 main/binary-amd64/Packages.gz
+ 5fcf975358ee5dbe6eb850f4e049dda7              174 Release
+ b6a7299bdf9cb978f03bbd8a82d042c4            19115 main/binary-amd64/Packages
+ a2d10854bc380e645f89bc290cfd51a7             7856 main/binary-amd64/Packages.gz
 SHA1:
- 3c9bd56adf7356e57c4a59fe680a90b5357907c2              174 Release
- 7e9d3f90f1cc22d122fc808853607520f2ce5db8            19115 main/binary-amd64/Packages
- c60ed54575943ed30ad56470d3670ca1bb7acd0c             7857 main/binary-amd64/Packages.gz
+ f4d8e90395656c634a614eb9be1351d47b23b641              174 Release
+ 71b9f9c27a69a2589dc3ee9245754554a24440dd            19115 main/binary-amd64/Packages
+ e842e138242f155c563cbe84da83c631b36d6078             7856 main/binary-amd64/Packages.gz
 SHA256:
- bd99ce29bbfe5cafcc66282c528868cc9b2466c1699c16ea053e3b1f3ed7af01              174 Release
- 1fbf37f2243b3476a4ba7c251960aa2f80c610035e4ae82b10833b84a39c3b39            19115 main/binary-amd64/Packages
- 8b23b2e8bd64129c67dc0f4bf035c81d28e6670f88ea7a1e4bf98460f340327f             7857 main/binary-amd64/Packages.gz
+ 5bafaaa465bcc2931eb363ed4fea45875e3e51928aacf08a12528754d5e806ea              174 Release
+ 46aee88fda99341ce8c2f4d2faf4cb0575217e9016e95ffda73df292683e6760            19115 main/binary-amd64/Packages
+ c7fbe75efd6673944188229fcf577209919bbe2a4e19f173fee094233f6f8393             7856 main/binary-amd64/Packages.gz
 SHA512:
- 589605c50196d23d1baede2870e7daf290b07c8e8979ca8f5401e274c2679158b7f8fc9da350bc6a5fd0309872b88e21a718e87daacc0747bcde5eb7c80bd067              174 Release
- 714c1f086ead755737dca3069cda3fe44a718aac9e3442a52d27c663c6b11dfda04b584fc8b75b8cfbb9196a0214bcd3f96d830c3aff0d67ccc59e9b28772b48            19115 main/binary-amd64/Packages
- 4b7c135d1a8dad2043a106492ae0137089885ebed027f17f378e1972a184a25c74170364573f15b407daff4fbe3be7e49617f05ce95c9bf48ace8a43f568e7ec             7857 main/binary-amd64/Packages.gz
+ 65b99e307a14d95805274186cc811716843cf4702cec93aca1435018a1e6e02ca646390d22d0f0159ee4c274217180da6f908dce48aff846a6540ab0e428f735              174 Release
+ b9a8484e3ec1ac3dec8fc672663b78bc6aa6bd8416596829f6e3284666be8ec26ec6635ee718f826d08bfe0b0c869b5a4c403cbe5789db31e1bb1cb33f88188e            19115 main/binary-amd64/Packages
+ 2f99ffa579de7c2284dbf432c068b03a4638f4a9a871e30463f3f16b2fd01d6182f3335e487d3a84245d7487305674d6f97e74c792a6f3deaf15c371ba2b9d82             7856 main/binary-amd64/Packages.gz

@@ -1,14 +1,14 @@
 Package: bankero
-Version: 0.0.1-1
+Version: 0.0.2-1
 Architecture: amd64
 Maintainer: Bankero Maintainers <noreply@github.com>
-Installed-Size: 3384
+Installed-Size: 3406
 Depends: libc6 (>= 2.34)
-Filename: pool/main/b/bankero/bankero_0.0.1-1_amd64.deb
-Size: 1337060
-MD5sum: 4ad67538f9c1fa61c63e5fe5933ed40e
-SHA1: 348563af46be8b716462435f3e5eca78bce796ba
-SHA256: 55bad82b443b5f54e2445fd84a29d45dcf1439ed69340314b65d229fac31276b
+Filename: pool/main/b/bankero/bankero_0.0.2-1_amd64.deb
+Size: 1342640
+MD5sum: 6901d8dc9fee2ac7236696962b0955d3
+SHA1: b17846abb5b6481b38e78acd7da7bb5d9a21eece
+SHA256: cb062ff45b8936d9e6ed0c22d94661c0ad481ac656321cb23c3b692712dbbc35
 Section: utils
 Priority: optional
 Homepage: https://github.com/JoCarrasco/bankero
