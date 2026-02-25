@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build_deb_and_publish_apt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            dpkg-dev apt-utils gnupg ca-certificates
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build .deb
+        run: cargo deb --locked --release
+
+      - name: Prepare apt repo
+        id: prep
+        run: |
+          set -euo pipefail
+          mkdir -p apt-repo
+          deb_path=$(ls -1 target/debian/*.deb | head -n 1)
+          echo "deb_path=${deb_path}" >> "$GITHUB_OUTPUT"
+          ./packaging/apt/build-repo.sh apt-repo "$deb_path" stable main amd64
+
+      - name: Import signing key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APT_GPG_PRIVATE_KEY}" ]; then
+            echo "Missing secret APT_GPG_PRIVATE_KEY" >&2
+            echo "Add an ASCII-armored private key to repository secrets." >&2
+            exit 1
+          fi
+          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Export public key
+        run: |
+          set -euo pipefail
+          mkdir -p apt-repo
+          gpg --batch --armor --export > apt-repo/public.gpg
+
+      - name: Sign repository metadata
+        env:
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APT_GPG_PASSPHRASE}" ]; then
+            echo "Missing secret APT_GPG_PASSPHRASE" >&2
+            exit 1
+          fi
+
+          rel="apt-repo/dists/stable/Release"
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+            --detach-sign -o "${rel}.gpg" "${rel}"
+
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+            --clearsign -o "apt-repo/dists/stable/InRelease" "${rel}"
+
+      - name: Publish apt repo to GitHub Pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: apt-repo
+          destination_dir: apt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.prep.outputs.deb_path }}
+            apt-repo/dists/stable/Release
+            apt-repo/dists/stable/Release.gpg
+            apt-repo/dists/stable/InRelease

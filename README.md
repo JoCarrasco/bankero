@@ -51,6 +51,45 @@ Next up (in PRD order):
 - [ ] Multi-device sync (`login`, `sync status|now`)
 - [ ] Recurrent tasks + workflows + webhook integrations
 
+## Install (Debian/Ubuntu via APT)
+
+This project can be distributed via a signed APT repository hosted on GitHub Pages.
+
+Repo URL (GitHub Pages):
+
+- `https://jocarrasco.github.io/bankero/apt`
+
+### 1) Add the signing key
+
+Download and install the repository public key into a dedicated keyring:
+
+```bash
+curl -fsSL https://jocarrasco.github.io/bankero/apt/public.gpg \
+	| sudo gpg --dearmor -o /usr/share/keyrings/bankero-archive-keyring.gpg
+```
+
+### 2) Add the apt source
+
+```bash
+echo "deb [signed-by=/usr/share/keyrings/bankero-archive-keyring.gpg] https://jocarrasco.github.io/bankero/apt stable main" \
+	| sudo tee /etc/apt/sources.list.d/bankero.list
+sudo apt-get update
+```
+
+### 3) Install
+
+```bash
+sudo apt-get install bankero
+bankero --help
+```
+
+### Publishing notes
+
+- The GitHub Actions release workflow expects repository secrets:
+	- `APT_GPG_PRIVATE_KEY` (ASCII-armored private key)
+	- `APT_GPG_PASSPHRASE`
+- You must also publish the public key at `apt/public.gpg` on GitHub Pages.
+
 ## Concepts
 
 - **Workspace**: the highest-level context (e.g., Personal, Business). Switching workspaces swaps the entire local data environment.
