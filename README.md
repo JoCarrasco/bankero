@@ -39,10 +39,11 @@ As of 2026-02-25:
 - [x] Workspace switching (`ws add|checkout|check`) with complete data isolation per workspace
 - [x] Project checkout stored in config and recorded on events (project list/spend rollups pending)
 - [x] Integration tests to freeze current CLI behavior (runs against a temporary `BANKERO_HOME`)
+- [x] `--confirm` for PRD-style move prompts for rate and prints value preview (`move ... @provider --confirm`)
+- [x] `--confirm` prompts to materialize basis when using `-b @provider`
 
 Next up (in PRD order):
 
-- [ ] Align CLI grammar with all PRD examples (remaining gaps are mostly around `--confirm` preview semantics and basis/provider behavior)
 - [ ] Provider resolution and time-based conversion engine (deterministic `@provider` + `@provider:rate` semantics)
 - [ ] `--confirm` flows that preview computed conversions/basis before writing
 - [ ] Monthly budgets + effective balance (actual vs reserved vs effective)

@@ -42,3 +42,36 @@ fn confirm_mode_prompts_for_rate_and_prints_value_preview() {
         .success()
         .stdout(predicate::str::contains("assets:wallet\tVES\t-5000"));
 }
+
+#[test]
+fn confirm_mode_prompts_for_basis_amount_when_basis_provider_is_set() {
+    let home = tempfile::tempdir().expect("tempdir");
+
+    // PRD example style:
+    // bankero buy external:farmatodo 840 VES --from assets:mercantil @bcv -b @binance --confirm
+
+    let mut cmd = bankero_cmd();
+    cmd.env("BANKERO_HOME", home.path());
+    cmd.args([
+        "buy",
+        "external:farmatodo",
+        "840",
+        "VES",
+        "--from",
+        "assets:mercantil",
+        "@bcv",
+        "-b",
+        "@binance",
+        "--confirm",
+        "--effective-at",
+        "2026-02-25T12:00:00Z",
+    ]);
+
+    // First prompt: rate for @bcv (VES per USD), second prompt: basis amount (USD), then confirm.
+    cmd.write_stdin("45.2\n100\ny\n")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Enter basis amount"))
+        .stderr(predicate::str::contains("Basis:"))
+        .stderr(predicate::str::contains("Transaction value:"));
+}

@@ -49,7 +49,7 @@ fn run() -> Result<()> {
             let confirm = args.common.confirm;
             let event_id = Uuid::new_v4();
             let payload = build_deposit_event(&cfg, "deposit", event_id, args.amount, args.commodity, args.from, args.to, None, args.common)?;
-            maybe_confirm_and_insert(&db, event_id, &payload, confirm)?;
+            maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
             println!("Wrote event {event_id} to {}", db_path.display());
         }
         Command::Move(args) => {
@@ -68,7 +68,7 @@ fn run() -> Result<()> {
                 to_commodity,
                 args.common,
             )?;
-            maybe_confirm_and_insert(&db, event_id, &payload, confirm)?;
+            maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
             println!("Wrote event {event_id} to {}", db_path.display());
         }
         Command::Buy(args) => {
@@ -97,7 +97,7 @@ fn run() -> Result<()> {
                 provider,
                 args.common,
             )?;
-            maybe_confirm_and_insert(&db, event_id, &payload, confirm)?;
+            maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
             println!("Wrote event {event_id} to {}", db_path.display());
         }
         Command::Sell(args) => {
@@ -116,14 +116,14 @@ fn run() -> Result<()> {
                 provider,
                 args.common,
             )?;
-            maybe_confirm_and_insert(&db, event_id, &payload, confirm)?;
+            maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
             println!("Wrote event {event_id} to {}", db_path.display());
         }
         Command::Tag(args) => {
             let confirm = args.common.confirm;
             let event_id = Uuid::new_v4();
             let payload = build_tag_event(&cfg, event_id, args.target, args.set_basis, args.common)?;
-            maybe_confirm_and_insert(&db, event_id, &payload, confirm)?;
+            maybe_confirm_and_insert(&db, &cfg, event_id, &payload, confirm)?;
             println!("Wrote event {event_id} to {}", db_path.display());
         }
         Command::Balance(args) => {
@@ -675,7 +675,7 @@ fn parse_split_to(raw: &str, commodity: &str) -> Result<(String, Decimal)> {
     Ok((account.to_string(), amount))
 }
 
-fn maybe_confirm_and_insert(db: &Db, event_id: Uuid, payload: &EventPayload, confirm: bool) -> Result<()> {
+fn maybe_confirm_and_insert(db: &Db, cfg: &AppConfig, event_id: Uuid, payload: &EventPayload, confirm: bool) -> Result<()> {
     if !confirm {
         db.insert_event(event_id, payload)?;
         return Ok(());
@@ -693,6 +693,25 @@ fn maybe_confirm_and_insert(db: &Db, event_id: Uuid, payload: &EventPayload, con
         ))?;
         if let Some(rate) = rate {
             payload.rate_context.override_rate = Some(rate);
+        }
+    }
+
+    // Basis provider confirmation: allow the user to materialize a provider-based basis
+    // as an explicit fixed amount in the reference commodity for determinism.
+    if let Some(BasisContext::Provider { provider }) = payload.basis.clone() {
+        let basis_amount = prompt_decimal(&format!(
+            "Enter basis amount in {} for {} or blank to keep as provider-only: ",
+            cfg.reference_commodity, provider
+        ))?;
+        if let Some(amount) = basis_amount {
+            payload.basis = Some(BasisContext::Fixed {
+                amount,
+                commodity: cfg.reference_commodity.clone(),
+            });
+            payload.metadata["basis_provider"] = serde_json::Value::String(provider);
+            eprintln!("Basis: {} {}.", amount, cfg.reference_commodity);
+        } else {
+            eprintln!("Basis provider: {} (not materialized).", provider);
         }
     }
 

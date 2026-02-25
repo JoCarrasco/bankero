@@ -533,7 +533,7 @@ Projections MUST be rebuildable from events.
 Implementation status (as of 2026-02-25):
 
 - [ ] All example commands in section 9.4 produce a stored immutable event.
-  - Notes: most core examples are supported; remaining gaps are mostly around `--confirm` (preview/fetch semantics) and provider-derived basis.
+  - Notes: most core examples are supported; PRD-style `move ... @provider --confirm` (rate prompt + value preview) is implemented; remaining gaps are mostly around provider-backed basis computation and deterministic provider resolution.
 - [ ] After syncing two devices that created events offline, the merged ledger contains both events and projections match on both devices.
 - [x] Reports filtered by `--tag` and `--category` return consistent results.
 - [ ] Budget report shows budget vs actual for a given month.
@@ -566,6 +566,9 @@ Milestone tracking (as of 2026-02-25):
 - [ ] 2. Actions: `deposit`, `move`, `buy`, `sell` + `--confirm` flows
   - [x] Core actions write immutable events: `deposit`, `move`, `buy`, `sell`, `tag`
   - [ ] `--confirm` flow matches PRD intent (rate fetch/preview + confirmation)
+    - [x] `move ... @provider --confirm` prompts for rate and prints a value preview
+    - [ ] Deterministic provider rate resolution (no interactive prompt)
+    - [x] Basis-provider preview/confirmation prompt (`-b @provider`)
   - [x] CLI grammar matches section 9.4 for `buy` split form (no payee)
 
 - [ ] 3. Providers + overrides (`@provider`, `@provider:rate`) + time-based conversion
