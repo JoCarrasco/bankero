@@ -17,6 +17,9 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      CARGO_DEB_VERSION: 3.6.3
+
     steps:
       - uses: actions/checkout@v4
 
@@ -56,9 +59,27 @@ jobs:
 
       # Build release artifacts only for tags; the `release` job will reuse these
       # instead of recompiling on a separate runner.
-      - name: Install cargo-deb
+      - name: Cache cargo tools (~/.cargo/bin)
         if: startsWith(github.ref, 'refs/tags/v')
-        run: cargo install cargo-deb --locked
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: cargo-tools-${{ runner.os }}-cargo-deb-${{ env.CARGO_DEB_VERSION }}
+
+      - name: Check cargo-deb present
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: cargo_deb
+        run: |
+          set -euo pipefail
+          if [ -x "$HOME/.cargo/bin/cargo-deb" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install cargo-deb
+        if: startsWith(github.ref, 'refs/tags/v') && steps.cargo_deb.outputs.found != 'true'
+        run: cargo install cargo-deb --locked --version $CARGO_DEB_VERSION
 
       - name: Build release binary
         if: startsWith(github.ref, 'refs/tags/v')
