@@ -54,6 +54,23 @@ jobs:
           name: coverage-summary
           path: coverage-summary.txt
 
+      # Build release artifacts only for tags; the `release` job will reuse these
+      # instead of recompiling on a separate runner.
+      - name: Install cargo-deb
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: cargo install cargo-deb --locked
+
+      - name: Build .deb
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: cargo deb --locked
+
+      - name: Upload .deb artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: target/debian/*.deb
+
   release:
     name: Release (.deb + apt repo + GitHub Release)
     if: startsWith(github.ref, 'refs/tags/v')
@@ -65,30 +82,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download .deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deb-package
+          path: dist
+
       - name: Install system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             dpkg-dev apt-utils gnupg ca-certificates
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install cargo-deb
-        run: cargo install cargo-deb --locked
-
-      - name: Build .deb
-        run: cargo deb --locked
-
       - name: Prepare apt repo
         id: prep
         run: |
           set -euo pipefail
           mkdir -p apt-repo
-          deb_path=$(ls -1 target/debian/*.deb | head -n 1)
+          deb_path=$(ls -1 dist/*.deb | head -n 1)
           echo "deb_path=${deb_path}" >> "$GITHUB_OUTPUT"
           ./packaging/apt/build-repo.sh apt-repo "$deb_path" stable main amd64
 
