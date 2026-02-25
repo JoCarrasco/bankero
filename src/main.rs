@@ -308,7 +308,8 @@ fn handle_budget(db: &Db, cmd: BudgetCmd) -> Result<()> {
                 }
             }
 
-            let changed = db.set_budget_auto_reserve(&name, from_prefix.as_deref(), until_amount)?;
+            let changed =
+                db.set_budget_auto_reserve(&name, from_prefix.as_deref(), until_amount)?;
             if changed == 0 {
                 return Err(anyhow!("No such budget: '{name}'"));
             }
@@ -462,9 +463,11 @@ fn compute_budget_funded(
         }
 
         // Ensure the event came from the desired source account prefix.
-        let from_match = e.payload.postings.iter().any(|p| {
-            p.amount < Decimal::ZERO && p.account.starts_with(from_account_prefix)
-        });
+        let from_match = e
+            .payload
+            .postings
+            .iter()
+            .any(|p| p.amount < Decimal::ZERO && p.account.starts_with(from_account_prefix));
 
         if !from_match {
             continue;
@@ -1392,10 +1395,7 @@ fn print_balance(
             }
         }
 
-        let month = b
-            .month
-            .clone()
-            .unwrap_or_else(|| default_month.to_string());
+        let month = b.month.clone().unwrap_or_else(|| default_month.to_string());
         let (start, end) = parse_month_range(&month)?;
         let actual = compute_budget_actual(events, start, end, &b);
         let remaining_budget = b.amount - actual;
@@ -1405,15 +1405,8 @@ fn print_balance(
 
         let reserve_amount = if let Some(from_prefix) = &b.auto_reserve_from {
             let until = b.auto_reserve_until_amount.unwrap_or(b.amount);
-            let funded = compute_budget_funded(
-                events,
-                start,
-                end,
-                acct,
-                &b.commodity,
-                from_prefix,
-            )
-            .min(until);
+            let funded = compute_budget_funded(events, start, end, acct, &b.commodity, from_prefix)
+                .min(until);
             let unspent_funded = (funded - actual).max(Decimal::ZERO);
             remaining_budget.min(unspent_funded)
         } else {

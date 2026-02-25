@@ -337,11 +337,7 @@ impl Db {
                 auto_reserve_until_amount = ?3
             WHERE name = ?1
             "#,
-            params![
-                name,
-                from_prefix,
-                until_amount.map(|d| d.to_string()),
-            ],
+            params![name, from_prefix, until_amount.map(|d| d.to_string()),],
         )?;
         Ok(changed)
     }

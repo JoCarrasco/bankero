@@ -298,12 +298,18 @@ fn report_filters_by_range_account_and_commodity() {
     assert!(!out_range.contains("\tbuy\t"));
 
     // Account filter should keep only the move (it touches assets:ves).
-    let out_account = run_ok_out(&home, &["report", "--month", "2026-02", "--account", "assets:ves"]);
+    let out_account = run_ok_out(
+        &home,
+        &["report", "--month", "2026-02", "--account", "assets:ves"],
+    );
     assert!(out_account.contains("\tmove\t"));
     assert!(!out_account.contains("\tdeposit\t"));
 
     // Commodity filter should keep only the move (it has a VES posting).
-    let out_comm = run_ok_out(&home, &["report", "--month", "2026-02", "--commodity", "VES"]);
+    let out_comm = run_ok_out(
+        &home,
+        &["report", "--month", "2026-02", "--commodity", "VES"],
+    );
     assert!(out_comm.contains("\tmove\t"));
     assert!(!out_comm.contains("\tdeposit\t"));
 }

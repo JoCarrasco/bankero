@@ -1,6 +1,6 @@
 use assert_cmd::prelude::*;
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
 
 fn bankero_cmd() -> Command {
     Command::new(assert_cmd::cargo::cargo_bin!("bankero"))
