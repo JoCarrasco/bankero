@@ -18,6 +18,8 @@ pub struct StoredBudget {
     pub category: Option<String>,
     pub account: Option<String>,
     pub provider: Option<String>,
+    pub auto_reserve_from: Option<String>,
+    pub auto_reserve_until_amount: Option<Decimal>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -85,6 +87,11 @@ impl Db {
             CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_name ON budgets(name);
             "#,
         )?;
+
+        // Additive migrations for budgets table.
+        // SQLite doesn't support IF NOT EXISTS for columns, so ignore duplicate-column errors.
+        add_column_if_missing(&self.conn, "budgets", "auto_reserve_from", "TEXT")?;
+        add_column_if_missing(&self.conn, "budgets", "auto_reserve_until_amount", "TEXT")?;
         Ok(())
     }
 
@@ -243,8 +250,8 @@ impl Db {
     pub fn insert_budget(&self, budget: &StoredBudget) -> Result<()> {
         self.conn.execute(
             r#"
-            INSERT INTO budgets (id, name, amount, commodity, month, category, account, provider, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            INSERT INTO budgets (id, name, amount, commodity, month, category, account, provider, auto_reserve_from, auto_reserve_until_amount, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             "#,
             params![
                 budget.id.to_string(),
@@ -255,16 +262,94 @@ impl Db {
                 budget.category,
                 budget.account,
                 budget.provider,
+                budget.auto_reserve_from,
+                budget.auto_reserve_until_amount.map(|d| d.to_string()),
                 budget.created_at.to_rfc3339(),
             ],
         )?;
         Ok(())
     }
 
+    pub fn get_budget_by_name(&self, name: &str) -> Result<Option<StoredBudget>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id, name, amount, commodity, month, category, account, provider, auto_reserve_from, auto_reserve_until_amount, created_at
+            FROM budgets
+            WHERE name = ?1
+            LIMIT 1
+            "#,
+        )?;
+
+        let mut rows = stmt.query(params![name])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+
+        let id: String = row.get(0)?;
+        let name: String = row.get(1)?;
+        let amount: String = row.get(2)?;
+        let commodity: String = row.get(3)?;
+        let month: Option<String> = row.get(4)?;
+        let category: Option<String> = row.get(5)?;
+        let account: Option<String> = row.get(6)?;
+        let provider: Option<String> = row.get(7)?;
+        let auto_reserve_from: Option<String> = row.get(8)?;
+        let auto_reserve_until_amount: Option<String> = row.get(9)?;
+        let created_at: String = row.get(10)?;
+
+        let id = Uuid::parse_str(&id).context("Invalid budget UUID")?;
+        let amount = amount
+            .parse::<Decimal>()
+            .context("Invalid decimal amount in budgets table")?;
+        let auto_reserve_until_amount = auto_reserve_until_amount
+            .map(|s| s.parse::<Decimal>())
+            .transpose()
+            .context("Invalid decimal auto_reserve_until_amount in budgets table")?;
+        let created_at = DateTime::parse_from_rfc3339(&created_at)
+            .context("Invalid created_at in budgets table")?
+            .with_timezone(&Utc);
+
+        Ok(Some(StoredBudget {
+            id,
+            name,
+            amount,
+            commodity,
+            month,
+            category,
+            account,
+            provider,
+            auto_reserve_from,
+            auto_reserve_until_amount,
+            created_at,
+        }))
+    }
+
+    pub fn set_budget_auto_reserve(
+        &self,
+        name: &str,
+        from_prefix: Option<&str>,
+        until_amount: Option<Decimal>,
+    ) -> Result<usize> {
+        let changed = self.conn.execute(
+            r#"
+            UPDATE budgets
+            SET auto_reserve_from = ?2,
+                auto_reserve_until_amount = ?3
+            WHERE name = ?1
+            "#,
+            params![
+                name,
+                from_prefix,
+                until_amount.map(|d| d.to_string()),
+            ],
+        )?;
+        Ok(changed)
+    }
+
     pub fn list_budgets(&self) -> Result<Vec<StoredBudget>> {
         let mut stmt = self.conn.prepare(
             r#"
-            SELECT id, name, amount, commodity, month, category, account, provider, created_at
+            SELECT id, name, amount, commodity, month, category, account, provider, auto_reserve_from, auto_reserve_until_amount, created_at
             FROM budgets
             ORDER BY created_at ASC
             "#,
@@ -279,7 +364,9 @@ impl Db {
             let category: Option<String> = row.get(5)?;
             let account: Option<String> = row.get(6)?;
             let provider: Option<String> = row.get(7)?;
-            let created_at: String = row.get(8)?;
+            let auto_reserve_from: Option<String> = row.get(8)?;
+            let auto_reserve_until_amount: Option<String> = row.get(9)?;
+            let created_at: String = row.get(10)?;
             Ok((
                 id,
                 name,
@@ -289,6 +376,8 @@ impl Db {
                 category,
                 account,
                 provider,
+                auto_reserve_from,
+                auto_reserve_until_amount,
                 created_at,
             ))
         })?;
@@ -304,12 +393,18 @@ impl Db {
                 category,
                 account,
                 provider,
+                auto_reserve_from,
+                auto_reserve_until_amount,
                 created_at,
             ) = row?;
             let id = Uuid::parse_str(&id).context("Invalid budget UUID")?;
             let amount = amount
                 .parse::<Decimal>()
                 .context("Invalid decimal amount in budgets table")?;
+            let auto_reserve_until_amount = auto_reserve_until_amount
+                .map(|s| s.parse::<Decimal>())
+                .transpose()
+                .context("Invalid decimal auto_reserve_until_amount in budgets table")?;
             let created_at = DateTime::parse_from_rfc3339(&created_at)
                 .context("Invalid created_at in budgets table")?
                 .with_timezone(&Utc);
@@ -323,11 +418,28 @@ impl Db {
                 category,
                 account,
                 provider,
+                auto_reserve_from,
+                auto_reserve_until_amount,
                 created_at,
             });
         }
 
         Ok(out)
+    }
+}
+
+fn add_column_if_missing(conn: &Connection, table: &str, column: &str, ty: &str) -> Result<()> {
+    let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {ty}");
+    match conn.execute(&sql, []) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("duplicate column name") {
+                Ok(())
+            } else {
+                Err(e).with_context(|| format!("Failed to add column {table}.{column}"))
+            }
+        }
     }
 }
 

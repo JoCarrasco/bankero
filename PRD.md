@@ -166,7 +166,7 @@ bankero sell 100 USDT --to assets:banesco 4500 VES @binance --note "P2P Exit" --
 **8.5 Revaluation (basis update without movement)**
 
 ```bash
-bankero tag assets:gold-bar --set-basis @binance --note "Monthly revaluation"
+bankero tag assets:gold-bar --set-basis "2000 USD" --note "Monthly revaluation"
 ```
 
 **8.6 Budgets (monthly + effective balance)**
@@ -187,7 +187,7 @@ bankero budget create "Materials" 1500 USDT @binance --account assets:personalbi
 Automate virtual siphoning (reserve money on matching credits):
 
 ```bash
-bankero budget update "Materials" --auto-virtually-remove-from-balance --when every-credit --from income:mcdonalds --until 1300 USDT
+bankero budget update "Materials" --auto-reserve-from income:mcdonalds --until 1300 USDT
 ```
 
 Check actual vs reserved vs effective balance:
@@ -528,6 +528,21 @@ Each workflow event SHOULD include:
 
 Projections MUST be rebuildable from events.
 
+### Flow coverage (use-cases, not line coverage)
+
+For this MVP, we measure confidence by **end-to-end flow correctness**: cross-command CLI workflows should work on a clean, isolated local DB.
+
+Definition:
+
+- A **flow** is a user-facing use-case (often crossing multiple commands) that ends in a verifiable outcome (e.g., `balance` / `report` output or durable persistence).
+- Flows are tracked only for features that are implemented; stub commands (`sync`, `task`, `workflow`, `piggy`) are excluded until they stop being stubs.
+
+The integration test suite uses isolated temporary homes (`BANKERO_HOME`) so tests can run in parallel safely:
+
+- Workspaces/projects: `tests/flows_e2e.rs` and `tests/budget_flow.rs`
+- Rates/confirm: `tests/confirm_flow.rs` and `tests/flows_e2e.rs`
+- Core actions/report: `tests/cli_smoke.rs` and `tests/flows_e2e.rs`
+
 ## 13. Acceptance criteria
 
 Implementation status (as of 2026-02-25):
@@ -589,6 +604,8 @@ Milestone tracking (as of 2026-02-25):
   - [x] `budget report --month YYYY-MM` prints budget vs actual spend (per budget)
   - [x] Effective balance: reserved vs effective totals in `balance` (account-scoped budgets)
     - [x] `balance --month YYYY-MM` selects the month context used for budget reservations
-  - [ ] Budget automation (virtual siphoning)
+  - [x] Budget automation MVP (virtual siphoning)
+    - [x] `budget update <name> --auto-reserve-from <acct-prefix> --until <amount commodity>`
+    - [x] Reservation is based on matching credits (funded, capped) minus category spend
 
 - [ ] 7. Multi-device sync + device login + webhook rules

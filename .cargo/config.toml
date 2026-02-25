@@ -1,0 +1,7 @@
+[alias]
+# Runs the end-to-end (flow) integration test suite.
+# Usage: `cargo e2e`
+# Add `-- --nocapture` after it to see test output.
+# Example: `cargo e2e -- --nocapture`
+
+e2e = "test --locked --test cli_smoke --test confirm_flow --test budget_flow --test flows_e2e"

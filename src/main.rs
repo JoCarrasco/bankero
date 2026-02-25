@@ -242,6 +242,8 @@ fn handle_budget(db: &Db, cmd: BudgetCmd) -> Result<()> {
                 category,
                 account,
                 provider,
+                auto_reserve_from: None,
+                auto_reserve_until_amount: None,
                 created_at: now_utc(),
             };
 
@@ -249,8 +251,80 @@ fn handle_budget(db: &Db, cmd: BudgetCmd) -> Result<()> {
             println!("Created budget '{}' {} {}.", name, budget.amount, commodity);
             Ok(())
         }
-        BudgetCmd::Update { name: _ } => {
-            eprintln!("budget update is not implemented yet (Milestone 6)");
+        BudgetCmd::Update {
+            name,
+            auto_reserve_from,
+            until,
+            clear_auto_reserve,
+        } => {
+            let Some(budget) = db.get_budget_by_name(&name)? else {
+                return Err(anyhow!("No such budget: '{name}'"));
+            };
+
+            if clear_auto_reserve {
+                let changed = db.set_budget_auto_reserve(&name, None, None)?;
+                if changed == 0 {
+                    return Err(anyhow!("No such budget: '{name}'"));
+                }
+                println!("Cleared auto-reserve for budget '{name}'.");
+                return Ok(());
+            }
+
+            let from_prefix = auto_reserve_from
+                .as_deref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+
+            let until_amount = match until {
+                None => None,
+                Some(parts) => {
+                    if parts.len() != 2 {
+                        return Err(anyhow!("--until expects: <amount> <commodity>"));
+                    }
+                    let amount = parse_decimal(parts[0].clone(), "until amount")?;
+                    let comm = parts[1].to_ascii_uppercase();
+                    let budget_comm = budget.commodity.to_ascii_uppercase();
+                    if comm != budget_comm {
+                        return Err(anyhow!(
+                            "--until commodity must match budget commodity ({} != {})",
+                            comm,
+                            budget_comm
+                        ));
+                    }
+                    Some(amount)
+                }
+            };
+
+            if from_prefix.is_some() {
+                if budget.account.is_none() {
+                    return Err(anyhow!(
+                        "Auto-reserve requires the budget to be scoped to an account. Create the budget with: --account <account>"
+                    ));
+                }
+                if budget.category.is_none() {
+                    return Err(anyhow!(
+                        "Auto-reserve requires the budget to have a category. Create the budget with: --category <category>"
+                    ));
+                }
+            }
+
+            let changed = db.set_budget_auto_reserve(&name, from_prefix.as_deref(), until_amount)?;
+            if changed == 0 {
+                return Err(anyhow!("No such budget: '{name}'"));
+            }
+
+            if let Some(from) = from_prefix {
+                let until_display = until_amount
+                    .map(|d| d.to_string())
+                    .unwrap_or_else(|| "(none)".to_string());
+                println!(
+                    "Updated budget '{name}': auto-reserve from '{from}', until {until_display} {}.",
+                    budget.commodity
+                );
+            } else {
+                println!("Updated budget '{name}'.");
+            }
+
             Ok(())
         }
         BudgetCmd::Report { month } => {
@@ -347,6 +421,56 @@ fn compute_budget_actual(
             }
             total += -p.amount;
         }
+    }
+
+    total
+}
+
+fn compute_budget_funded(
+    events: &[StoredEvent],
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    to_account_prefix: &str,
+    commodity: &str,
+    from_account_prefix: &str,
+) -> Decimal {
+    let mut total = Decimal::ZERO;
+    let comm = commodity.to_ascii_uppercase();
+
+    for e in events {
+        if e.effective_at < start || e.effective_at > end {
+            continue;
+        }
+
+        // Identify credits to the destination account.
+        let mut credit_sum = Decimal::ZERO;
+        for p in &e.payload.postings {
+            if p.amount <= Decimal::ZERO {
+                continue;
+            }
+            if p.commodity.to_ascii_uppercase() != comm {
+                continue;
+            }
+            if !p.account.starts_with(to_account_prefix) {
+                continue;
+            }
+            credit_sum += p.amount;
+        }
+
+        if credit_sum.is_zero() {
+            continue;
+        }
+
+        // Ensure the event came from the desired source account prefix.
+        let from_match = e.payload.postings.iter().any(|p| {
+            p.amount < Decimal::ZERO && p.account.starts_with(from_account_prefix)
+        });
+
+        if !from_match {
+            continue;
+        }
+
+        total += credit_sum;
     }
 
     total
@@ -1274,12 +1398,33 @@ fn print_balance(
             .unwrap_or_else(|| default_month.to_string());
         let (start, end) = parse_month_range(&month)?;
         let actual = compute_budget_actual(events, start, end, &b);
-        let remaining = b.amount - actual;
-        if remaining <= Decimal::ZERO {
+        let remaining_budget = b.amount - actual;
+        if remaining_budget <= Decimal::ZERO {
+            continue;
+        }
+
+        let reserve_amount = if let Some(from_prefix) = &b.auto_reserve_from {
+            let until = b.auto_reserve_until_amount.unwrap_or(b.amount);
+            let funded = compute_budget_funded(
+                events,
+                start,
+                end,
+                acct,
+                &b.commodity,
+                from_prefix,
+            )
+            .min(until);
+            let unspent_funded = (funded - actual).max(Decimal::ZERO);
+            remaining_budget.min(unspent_funded)
+        } else {
+            remaining_budget
+        };
+
+        if reserve_amount <= Decimal::ZERO {
             continue;
         }
         let key = (acct.clone(), b.commodity.clone());
-        *reserved.entry(key).or_insert(Decimal::ZERO) -= remaining;
+        *reserved.entry(key).or_insert(Decimal::ZERO) -= reserve_amount;
     }
 
     if !reserved.is_empty() {

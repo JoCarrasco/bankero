@@ -39,6 +39,7 @@ As of 2026-02-25:
 - [x] Workspace switching (`ws add|checkout|check`) with complete data isolation per workspace
 - [x] Project checkout stored in config and recorded on events (project list/spend rollups pending)
 - [x] Integration tests to freeze current CLI behavior (runs against a temporary `BANKERO_HOME`, safe for parallel runs; includes cross-flow scenarios like ws/project/budget)
+- [x] E2E “flows matrix” tests (cross-command workflows: ws isolation, rates roundtrip, sell confirm, tag+report)
 - [x] GitHub Actions guardrails: CI (fmt+tests), Clippy (correctness/suspicious), Coverage summary, Nightly run
 - [x] Offline provider rate store (`bankero rate set|get|list`)
 - [x] `--confirm` uses stored provider rates and prints a value preview (`move ... @provider --confirm`)
@@ -51,10 +52,47 @@ Next up (in PRD order):
 - [ ] `--confirm` flows that preview computed conversions/basis before writing
 - [x] Monthly budgets (create + budget-vs-actual report)
 - [x] Effective balance (reserved vs effective) for account-scoped budgets
-- [ ] Budget automation (virtual siphoning)
+- [x] Budget automation MVP: auto-reserve from matching credits (cap with `--until`)
 - [ ] Piggy banks (savings goals)
 - [ ] Multi-device sync (`login`, `sync status|now`)
 - [ ] Recurrent tasks + workflows + webhook integrations
+
+## Flow checklist (E2E use-cases)
+
+This project prioritizes **flow correctness** over pure line coverage: we track whether real CLI workflows (cross-over use cases) keep working end-to-end.
+
+Scope: only flows that are implemented (stub commands like `sync`, `task`, `workflow`, `piggy` are excluded until they stop being stubs).
+
+Compute flow coverage from the terminal:
+
+```bash
+bash scripts/flows_coverage.sh
+# or enforce a minimum threshold:
+bash scripts/flows_coverage.sh --min 80
+```
+
+Run the full E2E flow test suite:
+
+```bash
+cargo e2e
+```
+
+- [x] Workspace isolation (events + rates) — `tests/flows_e2e.rs::workspace_isolation_applies_to_events_and_rates`
+- [x] Workspace/project switching + reset semantics — `tests/flows_e2e.rs::ws_check_and_project_checkout_work_and_ws_checkout_resets_project`
+- [x] Provider rate store roundtrip (`rate set|get|list`) — `tests/flows_e2e.rs::rate_set_get_list_roundtrip_is_deterministic`
+- [x] Deposit → balance rebuild — `tests/cli_smoke.rs::deposit_and_move_write_events_and_balance_rebuilds`
+- [x] Move (manual override cross-currency) → balance — `tests/cli_smoke.rs::deposit_and_move_write_events_and_balance_rebuilds`
+- [x] Move (computed quote from stored rate) → balance — `tests/cli_smoke.rs::move_can_compute_quote_amount_from_stored_rate`
+- [x] Confirm-mode preview + commit (move) — `tests/confirm_flow.rs::confirm_mode_uses_stored_rate_and_prints_value_preview`
+- [x] Confirm-mode basis computation (`-b @provider`) — `tests/confirm_flow.rs::confirm_mode_computes_basis_deterministically_when_basis_provider_is_set`
+- [x] Buy with splits (valid) + split validation failure — `tests/cli_smoke.rs::buy_with_splits_requires_sum_match`
+- [x] Sell confirm-mode preview + commit — `tests/flows_e2e.rs::sell_confirm_flow_writes_event_and_prints_value_preview`
+- [x] Tag with fixed basis + report tag filter — `tests/flows_e2e.rs::tag_fixed_basis_is_recorded_and_report_can_filter_by_tag`
+- [x] Report filters: month/category/tag — `tests/cli_smoke.rs::report_filters_by_month_category_and_tag`
+- [x] Report filters: range/account/commodity — `tests/flows_e2e.rs::report_filters_by_range_account_and_commodity`
+- [x] Budgets: create + report actuals — `tests/budget_flow.rs::budget_create_and_report_shows_actual_spend_for_month`
+- [x] Budgets: effective balance (reserved + effective) — `tests/budget_flow.rs::balance_shows_reserved_and_effective_for_account_scoped_budgets`
+- [x] Budgets: automation (funded cap minus spend) — `tests/budget_flow.rs::auto_reserve_reserves_only_funded_amount_minus_spend`
 
 ## Install (Debian/Ubuntu via APT)
 
@@ -262,7 +300,7 @@ bankero buy 500 USD --from assets:bank --to expenses:rent:450 --to expenses:wate
 8) Intrinsic update (revaluation)
 
 ```bash
-bankero tag assets:gold-bar --set-basis @binance --note "Monthly revaluation"
+bankero tag assets:gold-bar --set-basis "2000 USD" --note "Monthly revaluation"
 ```
 
 9) Interactive confirm mode
@@ -434,11 +472,16 @@ bankero budget report --month 2026-02
 Virtually reserve money when specific credits happen, so budgets are funded before you see the “available” cash.
 
 ```bash
-# Every time I get paid from McDonalds, virtually reserve 300 USD
-bankero budget update "Materials" --auto-virtually-remove-from-balance --when every-credit --from income:mcdonalds --until 1300 USDT
+# Every time I get paid from salary, virtually reserve money into the budget
+# (capped by --until; reservation is reduced as you spend in the budget category)
+bankero budget update "Food" --auto-reserve-from income:salary --until 200 USD
 ```
 
-(Not implemented yet.)
+Disable automation:
+
+```bash
+bankero budget update "Food" --clear-auto-reserve
+```
 
 ### Checking balance (actual vs effective)
 

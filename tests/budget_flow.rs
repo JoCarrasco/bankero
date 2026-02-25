@@ -260,3 +260,97 @@ fn e2e_workspace_project_budget_income_and_spend_flow() {
     assert_eq!(v.get("workspace").and_then(|x| x.as_str()), Some(ws));
     assert_eq!(v.get("project").and_then(|x| x.as_str()), Some(project));
 }
+
+#[test]
+fn auto_reserve_reserves_only_funded_amount_minus_spend() {
+    let home = tempfile::tempdir().expect("tempdir");
+
+    let t = "2026-02-25T12:00:00Z";
+
+    run_ok(
+        &home,
+        &[
+            "budget",
+            "create",
+            "Food",
+            "300",
+            "USD",
+            "--month",
+            "2026-02",
+            "--category",
+            "expenses:food",
+            "--account",
+            "assets:bank",
+        ],
+    );
+
+    // Enable auto-reserve from salary, capped at 200 USD.
+    run_ok(
+        &home,
+        &[
+            "budget",
+            "update",
+            "Food",
+            "--auto-reserve-from",
+            "income:salary",
+            "--until",
+            "200",
+            "USD",
+        ],
+    );
+
+    run_ok(
+        &home,
+        &[
+            "deposit",
+            "1000",
+            "USD",
+            "--to",
+            "assets:bank",
+            "--from",
+            "income:salary",
+            "--effective-at",
+            t,
+        ],
+    );
+
+    run_ok(
+        &home,
+        &[
+            "buy",
+            "external:market",
+            "50",
+            "USD",
+            "--from",
+            "assets:bank",
+            "--category",
+            "expenses:food",
+            "--effective-at",
+            t,
+        ],
+    );
+
+    run_ok(
+        &home,
+        &[
+            "buy",
+            "external:market",
+            "100",
+            "USD",
+            "--from",
+            "assets:bank",
+            "--category",
+            "expenses:food",
+            "--effective-at",
+            t,
+        ],
+    );
+
+    // Budget remaining is 150, but funded cap is 200 and spend is 150 => reserve only 50.
+    let out = run_ok_out(&home, &["balance", "assets:bank", "--month", "2026-02"]);
+    assert!(out.contains("assets:bank\tUSD\t850"));
+    assert!(out.contains("(reserved budgets)"));
+    assert!(out.contains("assets:bank\tUSD\t-50"));
+    assert!(out.contains("(effective balance)"));
+    assert!(out.contains("assets:bank\tUSD\t800"));
+}

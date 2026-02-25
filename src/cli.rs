@@ -510,6 +510,10 @@ pub struct SellArgs {
     long_about = r#"Tag command.
 
 Use --tag to add tags and/or --set-basis to record intrinsic value metadata.
+
+Note: provider-based basis computation (e.g. "@binance") requires a movement event
+with an outgoing posting (like `buy`/`sell`/`move --confirm`). For `tag`, use a
+fixed basis like "2000 USD".
 "#
 )]
 pub struct TagArgs {
@@ -649,9 +653,31 @@ pub enum BudgetCmd {
 
     #[command(
         about = "Update an existing budget",
-        long_about = "Update an existing budget."
+        long_about = r#"Update an existing budget.
+
+This milestone supports budget automation (virtual siphoning): reserve money
+virtually when matching credits happen.
+
+Examples:
+    bankero budget update "Food" --auto-reserve-from income:salary --until 200 USD
+    bankero budget update "Food" --clear-auto-reserve
+"#
     )]
-    Update { name: String },
+    Update {
+        name: String,
+
+        /// Enable auto-reserve (virtual siphoning) when credits come from this account prefix.
+        #[arg(long = "auto-reserve-from")]
+        auto_reserve_from: Option<String>,
+
+        /// Cap the total reserved amount for the month.
+        #[arg(long, value_names = ["AMOUNT", "COMMODITY"], num_args = 2)]
+        until: Option<Vec<String>>,
+
+        /// Disable auto-reserve automation for this budget.
+        #[arg(long = "clear-auto-reserve")]
+        clear_auto_reserve: bool,
+    },
 
     #[command(about = "Show a budget report", long_about = "Show a budget report.")]
     Report {
