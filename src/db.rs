@@ -23,6 +23,25 @@ pub struct StoredBudget {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone)]
+pub struct StoredPiggy {
+    pub id: Uuid,
+    pub name: String,
+    pub target_amount: Decimal,
+    pub commodity: String,
+    pub from_account: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredPiggyFund {
+    pub id: Uuid,
+    pub piggy_id: Uuid,
+    pub amount: Decimal,
+    pub effective_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
 pub struct Db {
     conn: Connection,
 }
@@ -85,6 +104,30 @@ impl Db {
             CREATE INDEX IF NOT EXISTS idx_budgets_month ON budgets(month);
             CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_name ON budgets(name);
+
+            CREATE TABLE IF NOT EXISTS piggies (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                target_amount TEXT NOT NULL,
+                commodity TEXT NOT NULL,
+                from_account TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_piggies_name ON piggies(name);
+            CREATE INDEX IF NOT EXISTS idx_piggies_from_account ON piggies(from_account);
+
+            CREATE TABLE IF NOT EXISTS piggy_funds (
+                id TEXT PRIMARY KEY,
+                piggy_id TEXT NOT NULL,
+                amount TEXT NOT NULL,
+                effective_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(piggy_id) REFERENCES piggies(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_piggy_funds_piggy_id ON piggy_funds(piggy_id);
+            CREATE INDEX IF NOT EXISTS idx_piggy_funds_effective_at ON piggy_funds(effective_at);
             "#,
         )?;
 
@@ -93,6 +136,148 @@ impl Db {
         add_column_if_missing(&self.conn, "budgets", "auto_reserve_from", "TEXT")?;
         add_column_if_missing(&self.conn, "budgets", "auto_reserve_until_amount", "TEXT")?;
         Ok(())
+    }
+
+    pub fn insert_piggy(&self, piggy: &StoredPiggy) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT INTO piggies (id, name, target_amount, commodity, from_account, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+            params![
+                piggy.id.to_string(),
+                piggy.name,
+                piggy.target_amount.to_string(),
+                piggy.commodity,
+                piggy.from_account,
+                piggy.created_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_piggy_by_name(&self, name: &str) -> Result<Option<StoredPiggy>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id, name, target_amount, commodity, from_account, created_at
+            FROM piggies
+            WHERE name = ?1
+            LIMIT 1
+            "#,
+        )?;
+
+        let mut rows = stmt.query(params![name])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+
+        let id: String = row.get(0)?;
+        let name: String = row.get(1)?;
+        let target_amount: String = row.get(2)?;
+        let commodity: String = row.get(3)?;
+        let from_account: String = row.get(4)?;
+        let created_at: String = row.get(5)?;
+
+        let id = Uuid::parse_str(&id).context("Invalid piggy UUID")?;
+        let target_amount = target_amount
+            .parse::<Decimal>()
+            .context("Invalid decimal target_amount in piggies table")?;
+        let created_at = DateTime::parse_from_rfc3339(&created_at)
+            .context("Invalid created_at in piggies table")?
+            .with_timezone(&Utc);
+
+        Ok(Some(StoredPiggy {
+            id,
+            name,
+            target_amount,
+            commodity,
+            from_account,
+            created_at,
+        }))
+    }
+
+    pub fn list_piggies(&self) -> Result<Vec<StoredPiggy>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id, name, target_amount, commodity, from_account, created_at
+            FROM piggies
+            ORDER BY created_at ASC
+            "#,
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let target_amount: String = row.get(2)?;
+            let commodity: String = row.get(3)?;
+            let from_account: String = row.get(4)?;
+            let created_at: String = row.get(5)?;
+            Ok((id, name, target_amount, commodity, from_account, created_at))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, name, target_amount, commodity, from_account, created_at) = row?;
+            let id = Uuid::parse_str(&id).context("Invalid piggy UUID")?;
+            let target_amount = target_amount
+                .parse::<Decimal>()
+                .context("Invalid decimal target_amount in piggies table")?;
+            let created_at = DateTime::parse_from_rfc3339(&created_at)
+                .context("Invalid created_at in piggies table")?
+                .with_timezone(&Utc);
+
+            out.push(StoredPiggy {
+                id,
+                name,
+                target_amount,
+                commodity,
+                from_account,
+                created_at,
+            });
+        }
+        Ok(out)
+    }
+
+    pub fn insert_piggy_fund(&self, fund: &StoredPiggyFund) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT INTO piggy_funds (id, piggy_id, amount, effective_at, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            "#,
+            params![
+                fund.id.to_string(),
+                fund.piggy_id.to_string(),
+                fund.amount.to_string(),
+                fund.effective_at.to_rfc3339(),
+                fund.created_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn piggy_funded_total(&self, piggy_id: Uuid) -> Result<Decimal> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT amount
+            FROM piggy_funds
+            WHERE piggy_id = ?1
+            ORDER BY effective_at ASC, created_at ASC
+            "#,
+        )?;
+
+        let rows = stmt.query_map(params![piggy_id.to_string()], |row| {
+            let amount: String = row.get(0)?;
+            Ok(amount)
+        })?;
+
+        let mut total = Decimal::ZERO;
+        for row in rows {
+            let amount = row?
+                .parse::<Decimal>()
+                .context("Invalid decimal amount in piggy_funds table")?;
+            total += amount;
+        }
+        Ok(total)
     }
 
     pub fn set_rate(

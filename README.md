@@ -135,7 +135,7 @@ Next up (in PRD order):
 - [x] Monthly budgets (create + budget-vs-actual report)
 - [x] Effective balance (reserved vs effective) for account-scoped budgets
 - [x] Budget automation MVP: auto-reserve from matching credits (cap with `--until`)
-- [ ] Piggy banks (savings goals)
+- [x] Piggy banks (savings goals)
 - [ ] Multi-device sync (`login`, `sync status|now`)
 - [ ] Recurrent tasks + workflows + webhook integrations
 
@@ -143,7 +143,7 @@ Next up (in PRD order):
 
 This project prioritizes **flow correctness** over pure line coverage: we track whether real CLI workflows (cross-over use cases) keep working end-to-end.
 
-Scope: only flows that are implemented (stub commands like `sync`, `task`, `workflow`, `piggy` are excluded until they stop being stubs).
+Scope: only flows that are implemented (stub commands like `sync`, `task`, `workflow` are excluded until they stop being stubs).
 
 Compute flow coverage from the terminal:
 
@@ -239,6 +239,9 @@ A piggy bank is a specialized virtual that tracks progress toward a target amoun
 ```bash
 # Create a Piggy Bank for a new car
 bankero piggy create "New Car" 5000 USD --from assets:savings
+
+# Fund it (virtual reservation; does not move money)
+bankero piggy fund "New Car" 2000 USD
 
 # Check progress (shows percentage and remaining)
 bankero piggy status "New Car"

@@ -8,11 +8,14 @@ use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use clap::Parser;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use uuid::Uuid;
 
-use crate::cli::{BudgetCmd, Cli, Command, ProjectCmd, RateCommand, WsCmd, parse_provider_opt};
+use crate::cli::{
+    BudgetCmd, Cli, Command, PiggyCmd, ProjectCmd, RateCommand, WsCmd, parse_provider_opt,
+};
 use crate::config::{AppConfig, app_paths, load_or_init_config, now_utc, write_config};
 use crate::db::Db;
 use crate::domain::{
@@ -191,11 +194,10 @@ fn run() -> Result<()> {
                 Command::Budget(args) => {
                     handle_budget(&db, args.cmd)?;
                 }
-                Command::Task(_)
-                | Command::Workflow(_)
-                | Command::Login
-                | Command::Sync(_)
-                | Command::Piggy(_) => {
+                Command::Piggy(args) => {
+                    handle_piggy(&db, args.cmd)?;
+                }
+                Command::Task(_) | Command::Workflow(_) | Command::Login | Command::Sync(_) => {
                     eprintln!("This command is a stub for later milestones.");
                 }
                 Command::Ws(_) | Command::Project(_) | Command::Upgrade(_) => unreachable!(),
@@ -358,6 +360,137 @@ fn handle_budget(db: &Db, cmd: BudgetCmd) -> Result<()> {
                     month, b.name, b.commodity, b.amount, actual, remaining
                 );
             }
+            Ok(())
+        }
+    }
+}
+
+fn handle_piggy(db: &Db, cmd: PiggyCmd) -> Result<()> {
+    match cmd {
+        PiggyCmd::Create {
+            name,
+            amount,
+            commodity,
+            from,
+        } => {
+            let target_amount = parse_decimal(amount, "amount")?;
+            if target_amount <= Decimal::ZERO {
+                return Err(anyhow!("Piggy target amount must be > 0"));
+            }
+
+            let piggy = crate::db::StoredPiggy {
+                id: Uuid::new_v4(),
+                name: name.clone(),
+                target_amount,
+                commodity: commodity.to_ascii_uppercase(),
+                from_account: from,
+                created_at: now_utc(),
+            };
+
+            db.insert_piggy(&piggy)
+                .with_context(|| format!("Failed to create piggy '{name}'"))?;
+            println!(
+                "Created piggy '{}' target {} {} (from {}).",
+                piggy.name, piggy.target_amount, piggy.commodity, piggy.from_account
+            );
+            Ok(())
+        }
+        PiggyCmd::List => {
+            let piggies = db.list_piggies()?;
+            if piggies.is_empty() {
+                println!("(no piggies)");
+                return Ok(());
+            }
+
+            println!("name\tcommodity\ttarget\tfunded\tpercent\tfrom");
+            for p in piggies {
+                let funded = db.piggy_funded_total(p.id)?;
+                let funded_capped = funded.min(p.target_amount);
+                let percent = if p.target_amount > Decimal::ZERO {
+                    (funded_capped / p.target_amount) * Decimal::from(100u32)
+                } else {
+                    Decimal::ZERO
+                };
+                println!(
+                    "{}\t{}\t{}\t{}\t{}\t{}",
+                    p.name,
+                    p.commodity,
+                    p.target_amount,
+                    funded,
+                    percent.round_dp(2),
+                    p.from_account
+                );
+            }
+            Ok(())
+        }
+        PiggyCmd::Status { name } => {
+            let Some(piggy) = db.get_piggy_by_name(&name)? else {
+                return Err(anyhow!("No such piggy: '{name}'"));
+            };
+
+            let funded = db.piggy_funded_total(piggy.id)?;
+            let funded_capped = funded.min(piggy.target_amount);
+            let percent_f = if piggy.target_amount > Decimal::ZERO {
+                (funded_capped / piggy.target_amount) * Decimal::from(100u32)
+            } else {
+                Decimal::ZERO
+            };
+            let percent_i = percent_f.round_dp(0).to_i32().unwrap_or(0).clamp(0, 100);
+
+            let bar_len = 10usize;
+            let filled = ((percent_i as usize) * bar_len) / 100;
+            let empty = bar_len.saturating_sub(filled);
+            let bar = format!("[{}{}]", "=".repeat(filled), "-".repeat(empty));
+
+            let remaining = (piggy.target_amount - funded).max(Decimal::ZERO);
+            println!(
+                "{} {}% ({} / {} {})",
+                bar, percent_i, funded, piggy.target_amount, piggy.commodity
+            );
+            println!("remaining\t{}\t{}", piggy.commodity, remaining);
+            println!("from\t{}", piggy.from_account);
+            Ok(())
+        }
+        PiggyCmd::Fund {
+            name,
+            amount,
+            commodity,
+            effective_at,
+        } => {
+            let Some(piggy) = db.get_piggy_by_name(&name)? else {
+                return Err(anyhow!("No such piggy: '{name}'"));
+            };
+
+            if let Some(comm) = commodity {
+                let comm = comm.to_ascii_uppercase();
+                if comm != piggy.commodity {
+                    return Err(anyhow!(
+                        "Piggy '{}' is in {} but fund was {}. Omit the commodity to use the piggy commodity.",
+                        piggy.name,
+                        piggy.commodity,
+                        comm
+                    ));
+                }
+            }
+
+            let amount = parse_decimal(amount, "amount")?;
+            if amount <= Decimal::ZERO {
+                return Err(anyhow!("Fund amount must be > 0"));
+            }
+            let effective_at = parse_rfc3339_or_now(effective_at.as_deref())?;
+
+            let fund = crate::db::StoredPiggyFund {
+                id: Uuid::new_v4(),
+                piggy_id: piggy.id,
+                amount,
+                effective_at,
+                created_at: now_utc(),
+            };
+            db.insert_piggy_fund(&fund)?;
+            println!(
+                "Funded piggy '{}' {} {} (from {}).",
+                piggy.name, fund.amount, piggy.commodity, piggy.from_account
+            );
             Ok(())
         }
     }
@@ -1491,7 +1624,7 @@ fn print_balance(
     }
     let now_month = current_month_yyyy_mm(now_utc());
     let default_month = month_context.unwrap_or(&now_month);
-    let mut reserved: BTreeMap<(String, String), Decimal> = BTreeMap::new();
+    let mut reserved_budgets: BTreeMap<(String, String), Decimal> = BTreeMap::new();
     for b in budgets {
         let Some(acct) = &b.account else {
             continue;
@@ -1524,14 +1657,46 @@ fn print_balance(
             continue;
         }
         let key = (acct.clone(), b.commodity.clone());
-        *reserved.entry(key).or_insert(Decimal::ZERO) -= reserve_amount;
+        *reserved_budgets.entry(key).or_insert(Decimal::ZERO) -= reserve_amount;
     }
 
-    if !reserved.is_empty() {
-        println!();
-        println!("(reserved budgets)");
-        for ((acct, comm), amt) in &reserved {
-            println!("{acct}\t{comm}\t{amt}");
+    // Piggy reservations (virtual allocations): applies to the piggy's configured from_account.
+    let piggies = db.list_piggies()?;
+    let mut reserved_piggies: BTreeMap<(String, String), Decimal> = BTreeMap::new();
+    for p in piggies {
+        if let Some(prefix) = account_prefix {
+            if !p.from_account.starts_with(prefix) {
+                continue;
+            }
+        }
+
+        let funded = db.piggy_funded_total(p.id)?;
+        let reserved_amount = funded.min(p.target_amount);
+        if reserved_amount <= Decimal::ZERO {
+            continue;
+        }
+
+        let key = (p.from_account.clone(), p.commodity.clone());
+        *reserved_piggies.entry(key).or_insert(Decimal::ZERO) -= reserved_amount;
+    }
+
+    let has_any_reserved = !(reserved_budgets.is_empty() && reserved_piggies.is_empty());
+
+    if has_any_reserved {
+        if !reserved_budgets.is_empty() {
+            println!();
+            println!("(reserved budgets)");
+            for ((acct, comm), amt) in &reserved_budgets {
+                println!("{acct}\t{comm}\t{amt}");
+            }
+        }
+
+        if !reserved_piggies.is_empty() {
+            println!();
+            println!("(reserved piggies)");
+            for ((acct, comm), amt) in &reserved_piggies {
+                println!("{acct}\t{comm}\t{amt}");
+            }
         }
 
         println!();
@@ -1540,7 +1705,10 @@ fn print_balance(
         for (k, v) in &balances {
             effective.insert(k.clone(), *v);
         }
-        for (k, v) in &reserved {
+        for (k, v) in &reserved_budgets {
+            *effective.entry(k.clone()).or_insert(Decimal::ZERO) += *v;
+        }
+        for (k, v) in &reserved_piggies {
             *effective.entry(k.clone()).or_insert(Decimal::ZERO) += *v;
         }
 

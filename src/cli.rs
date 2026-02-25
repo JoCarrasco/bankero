@@ -239,8 +239,17 @@ Examples:
     Sync(SyncArgs),
 
     #[command(
-        about = "Piggy commands (stub)",
-        long_about = "Piggy commands are a stub for later milestones."
+        about = "Piggy banks (savings goals)",
+        long_about = r#"Piggy banks (savings goals).
+
+Piggies are virtual reservations that reduce your effective balance without moving money.
+
+Examples:
+    bankero piggy create "New Car" 5000 USD --from assets:savings
+    bankero piggy fund "New Car" 200 USD
+    bankero piggy status "New Car"
+    bankero piggy list
+"#
     )]
     Piggy(PiggyArgs),
 }
@@ -857,11 +866,25 @@ pub enum PiggyCmd {
         from: String,
     },
 
+    #[command(about = "List piggies", long_about = "List piggies.")]
+    List,
+
     #[command(about = "Show piggy status", long_about = "Show piggy status.")]
     Status { name: String },
 
     #[command(about = "Fund a piggy", long_about = "Fund a piggy.")]
-    Fund { name: String },
+    Fund {
+        name: String,
+
+        amount: String,
+
+        /// Optional commodity (defaults to the piggy commodity).
+        commodity: Option<String>,
+
+        /// Financial time for ordering (RFC3339). Defaults to now.
+        #[arg(long)]
+        effective_at: Option<String>,
+    },
 }
 
 #[derive(Debug, Args)]
