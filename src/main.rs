@@ -4,14 +4,14 @@ mod db;
 mod domain;
 
 use anyhow::{Context, Result, anyhow};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use clap::Parser;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use uuid::Uuid;
 
-use crate::cli::{Cli, Command, ProjectCmd, RateCommand, WsCmd, parse_provider_opt};
+use crate::cli::{BudgetCmd, Cli, Command, ProjectCmd, RateCommand, WsCmd, parse_provider_opt};
 use crate::config::{AppConfig, app_paths, load_or_init_config, now_utc, write_config};
 use crate::db::Db;
 use crate::domain::{
@@ -177,7 +177,7 @@ fn run() -> Result<()> {
         }
         Command::Balance(args) => {
             let events = db.list_events()?;
-            print_balance(&events, args.account.as_deref())?;
+            print_balance(&db, &events, args.account.as_deref(), args.month.as_deref())?;
         }
         Command::Report(args) => {
             let events = db.list_events()?;
@@ -187,8 +187,8 @@ fn run() -> Result<()> {
         Command::Rate(args) => {
             handle_rate(&db, args.command)?;
         }
-        Command::Budget(_cmd) => {
-            eprintln!("budget commands are not implemented yet (Milestone 6)");
+        Command::Budget(args) => {
+            handle_budget(&db, args.cmd)?;
         }
         Command::Task(_)
         | Command::Workflow(_)
@@ -207,6 +207,149 @@ fn run() -> Result<()> {
 
 fn normalize_provider(raw: &str) -> String {
     raw.trim().trim_start_matches('@').to_string()
+}
+
+fn current_month_yyyy_mm(now: DateTime<Utc>) -> String {
+    format!("{:04}-{:02}", now.year(), now.month())
+}
+
+fn handle_budget(db: &Db, cmd: BudgetCmd) -> Result<()> {
+    match cmd {
+        BudgetCmd::Create {
+            name,
+            amount,
+            commodity,
+            month,
+            category,
+            account,
+            extra,
+        } => {
+            if let Some(m) = month.as_deref() {
+                let _ = parse_month_range(m)?;
+            }
+
+            let amount = parse_decimal(amount, "amount")?;
+            let commodity = commodity.to_ascii_uppercase();
+
+            let provider = parse_budget_provider(&extra)?;
+
+            let budget = crate::db::StoredBudget {
+                id: Uuid::new_v4(),
+                name: name.clone(),
+                amount,
+                commodity: commodity.clone(),
+                month,
+                category,
+                account,
+                provider,
+                created_at: now_utc(),
+            };
+
+            db.insert_budget(&budget)?;
+            println!("Created budget '{}' {} {}.", name, budget.amount, commodity);
+            Ok(())
+        }
+        BudgetCmd::Update { name: _ } => {
+            eprintln!("budget update is not implemented yet (Milestone 6)");
+            Ok(())
+        }
+        BudgetCmd::Report { month } => {
+            let month = month.unwrap_or_else(|| current_month_yyyy_mm(now_utc()));
+            let (start, end) = parse_month_range(&month)?;
+
+            let budgets = db.list_budgets()?;
+            let mut budgets: Vec<_> = budgets
+                .into_iter()
+                .filter(|b| match b.month.as_deref() {
+                    None => true,
+                    Some(m) => m == month,
+                })
+                .collect();
+            budgets.sort_by(|a, b| a.name.cmp(&b.name));
+
+            if budgets.is_empty() {
+                println!("(no budgets)");
+                return Ok(());
+            }
+
+            let events = db.list_events()?;
+            println!("month\tname\tcommodity\tbudget\tactual\tremaining");
+            for b in budgets {
+                let actual = compute_budget_actual(&events, start, end, &b);
+                let remaining = b.amount - actual;
+                println!(
+                    "{}\t{}\t{}\t{}\t{}\t{}",
+                    month, b.name, b.commodity, b.amount, actual, remaining
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn parse_budget_provider(extra: &[String]) -> Result<Option<String>> {
+    let mut provider: Option<String> = None;
+    for token in extra {
+        if let Some(p) = crate::domain::parse_provider_token(token) {
+            if provider.is_some() {
+                return Err(anyhow!(
+                    "budget create accepts at most one provider token (e.g. @binance)"
+                ));
+            }
+            if p.override_rate.is_some() {
+                return Err(anyhow!(
+                    "budget provider token must not include an override rate (use @provider, not @provider:rate)"
+                ));
+            }
+            provider = Some(normalize_provider(&p.provider));
+        } else {
+            return Err(anyhow!(
+                "Unrecognized extra argument for budget create: {token}"
+            ));
+        }
+    }
+    Ok(provider)
+}
+
+fn compute_budget_actual(
+    events: &[StoredEvent],
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    budget: &crate::db::StoredBudget,
+) -> Decimal {
+    let mut total = Decimal::ZERO;
+    let budget_comm = budget.commodity.to_ascii_uppercase();
+
+    for e in events {
+        if e.action != "buy" {
+            continue;
+        }
+        if e.effective_at < start || e.effective_at > end {
+            continue;
+        }
+        if let Some(cat) = &budget.category {
+            if e.payload.category.as_deref() != Some(cat.as_str()) {
+                continue;
+            }
+        }
+
+        for p in &e.payload.postings {
+            if p.amount >= Decimal::ZERO {
+                continue;
+            }
+            if p.commodity.to_ascii_uppercase() != budget_comm {
+                continue;
+            }
+            if let Some(acct) = &budget.account {
+                if !p.account.starts_with(acct) {
+                    continue;
+                }
+            }
+            total += -p.amount;
+        }
+    }
+
+    total
 }
 
 fn handle_rate(db: &Db, cmd: RateCommand) -> Result<()> {
@@ -1078,7 +1221,12 @@ fn prompt_decimal(prompt: &str) -> Result<Option<Decimal>> {
     Ok(Some(s.parse::<Decimal>().context("Invalid decimal")?))
 }
 
-fn print_balance(events: &[StoredEvent], account_prefix: Option<&str>) -> Result<()> {
+fn print_balance(
+    db: &Db,
+    events: &[StoredEvent],
+    account_prefix: Option<&str>,
+    month_context: Option<&str>,
+) -> Result<()> {
     let mut balances: BTreeMap<(String, String), Decimal> = BTreeMap::new();
     for e in events {
         for p in &e.payload.postings {
@@ -1097,8 +1245,63 @@ fn print_balance(events: &[StoredEvent], account_prefix: Option<&str>) -> Result
         return Ok(());
     }
 
-    for ((acct, comm), amt) in balances {
+    for ((acct, comm), amt) in &balances {
         println!("{acct}\t{comm}\t{amt}");
+    }
+
+    // Budget reservations (virtual deficits): only applies to budgets scoped to an account.
+    // Month context: budget.month if present, else --month if provided, else current month.
+    let budgets = db.list_budgets()?;
+    if let Some(m) = month_context {
+        let _ = parse_month_range(m)?;
+    }
+    let now_month = current_month_yyyy_mm(now_utc());
+    let default_month = month_context.unwrap_or(&now_month);
+    let mut reserved: BTreeMap<(String, String), Decimal> = BTreeMap::new();
+    for b in budgets {
+        let Some(acct) = &b.account else {
+            continue;
+        };
+        if let Some(prefix) = account_prefix {
+            if !acct.starts_with(prefix) {
+                continue;
+            }
+        }
+
+        let month = b
+            .month
+            .clone()
+            .unwrap_or_else(|| default_month.to_string());
+        let (start, end) = parse_month_range(&month)?;
+        let actual = compute_budget_actual(events, start, end, &b);
+        let remaining = b.amount - actual;
+        if remaining <= Decimal::ZERO {
+            continue;
+        }
+        let key = (acct.clone(), b.commodity.clone());
+        *reserved.entry(key).or_insert(Decimal::ZERO) -= remaining;
+    }
+
+    if !reserved.is_empty() {
+        println!();
+        println!("(reserved budgets)");
+        for ((acct, comm), amt) in &reserved {
+            println!("{acct}\t{comm}\t{amt}");
+        }
+
+        println!();
+        println!("(effective balance)");
+        let mut effective: BTreeMap<(String, String), Decimal> = BTreeMap::new();
+        for (k, v) in &balances {
+            effective.insert(k.clone(), *v);
+        }
+        for (k, v) in &reserved {
+            *effective.entry(k.clone()).or_insert(Decimal::ZERO) += *v;
+        }
+
+        for ((acct, comm), amt) in &effective {
+            println!("{acct}\t{comm}\t{amt}");
+        }
     }
     Ok(())
 }

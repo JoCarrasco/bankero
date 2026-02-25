@@ -533,13 +533,15 @@ Projections MUST be rebuildable from events.
 Implementation status (as of 2026-02-25):
 
 - [ ] All example commands in section 9.4 produce a stored immutable event.
-  - Notes: most core examples are supported; `move ... @provider --confirm` resolves rates deterministically from the offline rate store (and prints a value preview). Remaining gaps are mostly around a full provider-backed conversion engine and provider-backed basis computation.
+  - Notes: most core examples are supported; `move ... @provider --confirm` resolves rates deterministically from the offline rate store (and prints a value preview). Remaining gaps are mostly around a full provider-backed conversion engine, effective-balance virtuals, and sync.
 - [ ] After syncing two devices that created events offline, the merged ledger contains both events and projections match on both devices.
 - [x] Reports filtered by `--tag` and `--category` return consistent results.
-- [ ] Budget report shows budget vs actual for a given month.
-- [ ] `bankero balance` shows actual balance, reserved (virtual deficits), and effective total.
-  - Notes: current `balance` shows actual (sum of postings) only.
+- [x] Budget report shows budget vs actual for a given month.
+  - Notes: current MVP computes actual spend from `buy` outflows; budgets are stored in a dedicated `budgets` table (not yet as immutable events).
+- [x] `bankero balance` shows actual balance, reserved (virtual deficits), and effective total.
+  - Notes: effective balance currently applies to **account-scoped budgets** (budgets created with `--account`).
 - [x] Rebuilding projections from events yields the same balances and reports.
+- [x] CI guardrails run on PRs: format + tests + clippy + coverage summary.
 - [x] Switching workspaces isolates data completely (events and projections do not bleed across).
 - [x] Checking out a project auto-tags subsequent actions to that project.
   - Notes: project is stored on each event payload; project listing/spend rollups are not implemented yet.
@@ -583,5 +585,10 @@ Milestone tracking (as of 2026-02-25):
   - [x] Tags/categories stored on events and filterable in `report`
 
 - [ ] 6. Monthly budgets + budget reports
+  - [x] `budget create` stores a budget (name, amount, commodity) with optional `--month`, `--category`, `--account`, and optional provider token
+  - [x] `budget report --month YYYY-MM` prints budget vs actual spend (per budget)
+  - [x] Effective balance: reserved vs effective totals in `balance` (account-scoped budgets)
+    - [x] `balance --month YYYY-MM` selects the month context used for budget reservations
+  - [ ] Budget automation (virtual siphoning)
 
 - [ ] 7. Multi-device sync + device login + webhook rules

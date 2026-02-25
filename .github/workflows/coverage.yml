@@ -1,0 +1,33 @@
+name: Coverage
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  llvm_cov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install llvm-tools
+        run: rustup component add llvm-tools-preview
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+
+      - name: Coverage summary
+        run: cargo llvm-cov --locked --summary-only | tee coverage-summary.txt
+
+      - name: Upload coverage summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage-summary.txt

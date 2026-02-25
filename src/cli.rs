@@ -532,9 +532,14 @@ pub struct TagArgs {
 Examples:
     bankero balance
     bankero balance assets
+    bankero balance assets --month 2026-02
 "#
 )]
 pub struct BalanceArgs {
+    /// Optional month context used for budget reservations (YYYY-MM).
+    #[arg(long)]
+    pub month: Option<String>,
+
     pub account: Option<String>,
 }
 

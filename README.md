@@ -38,7 +38,8 @@ As of 2026-02-25:
 - [x] Basic read models by replay: `balance` (actual only) and `report` (filters: month/range/account/category/tag/commodity)
 - [x] Workspace switching (`ws add|checkout|check`) with complete data isolation per workspace
 - [x] Project checkout stored in config and recorded on events (project list/spend rollups pending)
-- [x] Integration tests to freeze current CLI behavior (runs against a temporary `BANKERO_HOME`)
+- [x] Integration tests to freeze current CLI behavior (runs against a temporary `BANKERO_HOME`, safe for parallel runs; includes cross-flow scenarios like ws/project/budget)
+- [x] GitHub Actions guardrails: CI (fmt+tests), Clippy (correctness/suspicious), Coverage summary, Nightly run
 - [x] Offline provider rate store (`bankero rate set|get|list`)
 - [x] `--confirm` uses stored provider rates and prints a value preview (`move ... @provider --confirm`)
 - [x] Computed cross-currency `move` using stored rates (`move 100 USD ... VES @provider`)
@@ -48,7 +49,9 @@ Next up (in PRD order):
 
 - [ ] Full provider-backed conversion engine (compute missing legs, deterministic provider logic)
 - [ ] `--confirm` flows that preview computed conversions/basis before writing
-- [ ] Monthly budgets + effective balance (actual vs reserved vs effective)
+- [x] Monthly budgets (create + budget-vs-actual report)
+- [x] Effective balance (reserved vs effective) for account-scoped budgets
+- [ ] Budget automation (virtual siphoning)
 - [ ] Piggy banks (savings goals)
 - [ ] Multi-device sync (`login`, `sync status|now`)
 - [ ] Recurrent tasks + workflows + webhook integrations
@@ -411,13 +414,19 @@ Local development uses **Docker Compose** to run Postgres and the Axum backend i
 
 Bankero supports monthly budgets by category with budget-vs-actual reporting.
 
-Budgets also create **virtual deficits**: they reserve money in reporting so your account summary shows what’s safe to spend.
+Bankero also supports an **effective balance** overlay for budgets that are scoped to an `--account`.
 
 ### Creating a budget
 
 ```bash
 bankero budget create "Materials" 1500 USDT @binance --account assets:personalbinance
-> Budget "Materials" with id "id213m-..." created.
+Created budget 'Materials' 1500 USDT.
+```
+
+Report budgets vs actual spend:
+
+```bash
+bankero budget report --month 2026-02
 ```
 
 ### Automation: virtual siphoning
@@ -429,6 +438,8 @@ Virtually reserve money when specific credits happen, so budgets are funded befo
 bankero budget update "Materials" --auto-virtually-remove-from-balance --when every-credit --from income:mcdonalds --until 1300 USDT
 ```
 
+(Not implemented yet.)
+
 ### Checking balance (actual vs effective)
 
 ```bash
@@ -436,6 +447,14 @@ bankero balance assets:personalbinance
 > Actual Balance:    2500.00 USDT
 > Budget Reserved:  -1300.00 USDT (Materials)
 > Effective Total:   1200.00 USDT
+```
+
+Note: effective balance currently accounts for **account-scoped budgets** only (budgets created with `--account`).
+
+You can set the month context used for budget reservations with `--month`:
+
+```bash
+bankero balance assets:bank --month 2026-02
 ```
 
 Example:
@@ -452,7 +471,7 @@ bankero budget report --month 2026-02
 | Workspace | `ws checkout` | Swaps the entire data environment |
 | Project | `project checkout` | Auto-tags transactions to a specific goal |
 | Piggy bank | `piggy fund` | Tracks progress of a target amount |
-| Budget | `budget create` | Creates a virtual deficit in balance reports |
+| Budget | `budget create` | Creates a budget target used by `budget report` |
 
 ## Reports
 

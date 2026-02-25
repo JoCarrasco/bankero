@@ -8,6 +8,19 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
+pub struct StoredBudget {
+    pub id: Uuid,
+    pub name: String,
+    pub amount: Decimal,
+    pub commodity: String,
+    pub month: Option<String>,
+    pub category: Option<String>,
+    pub account: Option<String>,
+    pub provider: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
 pub struct Db {
     conn: Connection,
 }
@@ -54,6 +67,22 @@ impl Db {
             );
 
             CREATE INDEX IF NOT EXISTS idx_rates_lookup ON rates(provider, base, quote, as_of);
+
+            CREATE TABLE IF NOT EXISTS budgets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                amount TEXT NOT NULL,
+                commodity TEXT NOT NULL,
+                month TEXT,
+                category TEXT,
+                account TEXT,
+                provider TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_budgets_month ON budgets(month);
+            CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_name ON budgets(name);
             "#,
         )?;
         Ok(())
@@ -205,6 +234,96 @@ impl Db {
                 created_at,
                 effective_at,
                 payload,
+            });
+        }
+
+        Ok(out)
+    }
+
+    pub fn insert_budget(&self, budget: &StoredBudget) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT INTO budgets (id, name, amount, commodity, month, category, account, provider, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "#,
+            params![
+                budget.id.to_string(),
+                budget.name,
+                budget.amount.to_string(),
+                budget.commodity,
+                budget.month,
+                budget.category,
+                budget.account,
+                budget.provider,
+                budget.created_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_budgets(&self) -> Result<Vec<StoredBudget>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT id, name, amount, commodity, month, category, account, provider, created_at
+            FROM budgets
+            ORDER BY created_at ASC
+            "#,
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let amount: String = row.get(2)?;
+            let commodity: String = row.get(3)?;
+            let month: Option<String> = row.get(4)?;
+            let category: Option<String> = row.get(5)?;
+            let account: Option<String> = row.get(6)?;
+            let provider: Option<String> = row.get(7)?;
+            let created_at: String = row.get(8)?;
+            Ok((
+                id,
+                name,
+                amount,
+                commodity,
+                month,
+                category,
+                account,
+                provider,
+                created_at,
+            ))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (
+                id,
+                name,
+                amount,
+                commodity,
+                month,
+                category,
+                account,
+                provider,
+                created_at,
+            ) = row?;
+            let id = Uuid::parse_str(&id).context("Invalid budget UUID")?;
+            let amount = amount
+                .parse::<Decimal>()
+                .context("Invalid decimal amount in budgets table")?;
+            let created_at = DateTime::parse_from_rfc3339(&created_at)
+                .context("Invalid created_at in budgets table")?
+                .with_timezone(&Utc);
+
+            out.push(StoredBudget {
+                id,
+                name,
+                amount,
+                commodity,
+                month,
+                category,
+                account,
+                provider,
+                created_at,
             });
         }
 

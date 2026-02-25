@@ -1,13 +1,12 @@
-name: CI
+name: Nightly
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
+  schedule:
+    - cron: '15 2 * * *'
   workflow_dispatch:
 
 jobs:
-  test:
+  nightly:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +21,4 @@ jobs:
         run: cargo fmt --check
 
       - name: Test
-        env:
-          RUST_BACKTRACE: 1
-        run: cargo test --locked --all-targets
+        run: cargo test --locked
