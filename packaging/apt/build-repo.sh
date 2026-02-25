@@ -21,6 +21,17 @@ first_letter="${pkg_name:0:1}"
 mkdir -p "${repo_root}/pool/${component}/${first_letter}/${pkg_name}"
 cp -f "${deb_path}" "${repo_root}/pool/${component}/${first_letter}/${pkg_name}/"
 
+# GitHub Pages serves static files; avoid Jekyll processing and provide a simple landing page.
+touch "${repo_root}/.nojekyll"
+cat > "${repo_root}/index.html" <<'HTML'
+<!doctype html>
+<meta charset="utf-8" />
+<title>Bankero APT Repository</title>
+<h1>Bankero APT Repository</h1>
+<p>This is a signed APT repository. Use the install instructions in the Bankero README.</p>
+<p>Public key: <a href="public.gpg">public.gpg</a></p>
+HTML
+
 mkdir -p "${repo_root}/dists/${codename}/${component}/binary-${arch}"
 
 # Packages index
