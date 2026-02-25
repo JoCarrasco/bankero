@@ -1,14 +1,14 @@
 Package: bankero
-Version: 0.0.2-1
+Version: 0.0.5-1
 Architecture: amd64
 Maintainer: Bankero Maintainers <noreply@github.com>
-Installed-Size: 3406
+Installed-Size: 3535
 Depends: libc6 (>= 2.34)
-Filename: pool/main/b/bankero/bankero_0.0.2-1_amd64.deb
-Size: 1342640
-MD5sum: 6901d8dc9fee2ac7236696962b0955d3
-SHA1: b17846abb5b6481b38e78acd7da7bb5d9a21eece
-SHA256: cb062ff45b8936d9e6ed0c22d94661c0ad481ac656321cb23c3b692712dbbc35
+Filename: pool/main/b/bankero/bankero_0.0.5-1_amd64.deb
+Size: 1382276
+MD5sum: 9bcc3b1134d925067626b570a2eed963
+SHA1: 6fa441084111143bc05657a741e0d26f808523d3
+SHA256: ff9560b1710ba69d701d205efa1ea45fcd63d00a17c1e7d71b6dc0cf8748ede1
 Section: utils
 Priority: optional
 Homepage: https://github.com/JoCarrasco/bankero
@@ -68,20 +68,87 @@ Description: Local-first multi-currency ledger (CLI)
  - [x] Project checkout stored in config and recorded on events (project
  list/spend rollups pending)
  - [x] Integration tests to freeze current CLI behavior (runs against a
- temporary `BANKERO_HOME`)
- - [x] `--confirm` for PRD-style move prompts for rate and prints value preview
- (`move ... @provider --confirm`)
- - [x] `--confirm` prompts to materialize basis when using `-b @provider`
+ temporary `BANKERO_HOME`, safe for parallel runs; includes cross-flow scenarios
+ like ws/project/budget)
+ - [x] E2E “flows matrix” tests (cross-command workflows: ws isolation,
+ rates roundtrip, sell confirm, tag+report)
+ - [x] GitHub Actions guardrails: CI (fmt+tests), Clippy
+ (correctness/suspicious), Coverage summary, Nightly run
+ - [x] Offline provider rate store (`bankero rate set|get|list`)
+ - [x] `--confirm` uses stored provider rates and prints a value preview (`move
+ ... @provider --confirm`)
+ - [x] Computed cross-currency `move` using stored rates (`move 100 USD ... VES
+ @provider`)
+ - [x] `--confirm` computes basis deterministically when using `-b @provider`
+ (requires stored rates)
  .
  Next up (in PRD order):
  .
- - [ ] Provider resolution and time-based conversion engine (deterministic
- `@provider` + `@provider:rate` semantics)
+ - [ ] Full provider-backed conversion engine (compute missing legs,
+ deterministic provider logic)
  - [ ] `--confirm` flows that preview computed conversions/basis before writing
- - [ ] Monthly budgets + effective balance (actual vs reserved vs effective)
+ - [x] Monthly budgets (create + budget-vs-actual report)
+ - [x] Effective balance (reserved vs effective) for account-scoped budgets
+ - [x] Budget automation MVP: auto-reserve from matching credits (cap with
+ `--until`)
  - [ ] Piggy banks (savings goals)
  - [ ] Multi-device sync (`login`, `sync status|now`)
  - [ ] Recurrent tasks + workflows + webhook integrations
+ .
+ ## Flow checklist (E2E use-cases)
+ .
+ This project prioritizes **flow correctness** over pure line coverage: we track
+ whether real CLI workflows (cross-over use cases) keep working end-to-end.
+ .
+ Scope: only flows that are implemented (stub commands like `sync`, `task`,
+ `workflow`, `piggy` are excluded until they stop being stubs).
+ .
+ Compute flow coverage from the terminal:
+ .
+ ```bash
+ bash scripts/flows_coverage.sh
+ # or enforce a minimum threshold:
+ bash scripts/flows_coverage.sh --min 80
+ ```
+ .
+ Run the full E2E flow test suite:
+ .
+ ```bash
+ cargo e2e
+ ```
+ .
+ - [x] Workspace isolation (events + rates) —
+ `tests/flows_e2e.rs::workspace_isolation_applies_to_events_and_rates`
+ - [x] Workspace/project switching + reset semantics —
+ `tests/flows_e2e.rs::ws_check_and_project_checkout_work_and_ws_checkout_resets_project`
+ - [x] Provider rate store roundtrip (`rate set|get|list`) —
+ `tests/flows_e2e.rs::rate_set_get_list_roundtrip_is_deterministic`
+ - [x] Deposit → balance rebuild —
+ `tests/cli_smoke.rs::deposit_and_move_write_events_and_balance_rebuilds`
+ - [x] Move (manual override cross-currency) → balance —
+ `tests/cli_smoke.rs::deposit_and_move_write_events_and_balance_rebuilds`
+ - [x] Move (computed quote from stored rate) → balance —
+ `tests/cli_smoke.rs::move_can_compute_quote_amount_from_stored_rate`
+ - [x] Confirm-mode preview + commit (move) —
+ `tests/confirm_flow.rs::confirm_mode_uses_stored_rate_and_prints_value_preview`
+ - [x] Confirm-mode basis computation (`-b @provider`) —
+ `tests/confirm_flow.rs::confirm_mode_computes_basis_deterministically_when_basis_provider_is_set`
+ - [x] Buy with splits (valid) + split validation failure —
+ `tests/cli_smoke.rs::buy_with_splits_requires_sum_match`
+ - [x] Sell confirm-mode preview + commit —
+ `tests/flows_e2e.rs::sell_confirm_flow_writes_event_and_prints_value_preview`
+ - [x] Tag with fixed basis + report tag filter —
+ `tests/flows_e2e.rs::tag_fixed_basis_is_recorded_and_report_can_filter_by_tag`
+ - [x] Report filters: month/category/tag —
+ `tests/cli_smoke.rs::report_filters_by_month_category_and_tag`
+ - [x] Report filters: range/account/commodity —
+ `tests/flows_e2e.rs::report_filters_by_range_account_and_commodity`
+ - [x] Budgets: create + report actuals —
+ `tests/budget_flow.rs::budget_create_and_report_shows_actual_spend_for_month`
+ - [x] Budgets: effective balance (reserved + effective) —
+ `tests/budget_flow.rs::balance_shows_reserved_and_effective_for_account_scoped_budgets`
+ - [x] Budgets: automation (funded cap minus spend) —
+ `tests/budget_flow.rs::auto_reserve_reserves_only_funded_amount_minus_spend`
  .
  ## Install (Debian/Ubuntu via APT)
  .
@@ -252,7 +319,19 @@ Description: Local-first multi-currency ledger (CLI)
  - `--category <path>`: a primary category for budgets and rollups (e.g.,
  `expenses:food:groceries`).
  - `--note`, `-m`: free-form note/memo.
- - `--confirm`: fetches required rates and asks for confirmation before writing.
+ - `--confirm`: resolves required provider rates from the local rate store and
+ asks for confirmation before writing.
+ .
+ ### Provider rates (offline)
+ .
+ If you use `@provider` without an explicit override like `@provider:rate`, you
+ can store provider rates locally:
+ .
+ ```bash
+ bankero rate set @bcv USD VES 45.2 --as-of 2026-02-25T12:00:00Z
+ bankero rate get @bcv USD VES --as-of 2026-02-25T12:00:00Z
+ bankero rate list @bcv USD VES
+ ```
  .
  ### Usage examples
  .
@@ -268,6 +347,13 @@ Description: Local-first multi-currency ledger (CLI)
  ```bash
  bankero move 100 USD --from assets:wells-fargo --to assets:banesco 42000 VES
  @manual:420
+ ```
+ .
+ 2a) Multi-currency transfer (stored provider rate)
+ .
+ ```bash
+ bankero rate set @bcv USD VES 45.2 --as-of 2026-02-25T12:00:00Z
+ bankero move 100 USD --from assets:wells-fargo --to assets:banesco VES @bcv
  ```
  .
  3) Purchasing with auto-rate (BCV)
@@ -305,7 +391,7 @@ Description: Local-first multi-currency ledger (CLI)
  8) Intrinsic update (revaluation)
  .
  ```bash
- bankero tag assets:gold-bar --set-basis @binance --note "Monthly revaluation"
+ bankero tag assets:gold-bar --set-basis "2000 USD" --note "Monthly revaluation"
  ```
  .
  9) Interactive confirm mode
@@ -493,15 +579,21 @@ Description: Local-first multi-currency ledger (CLI)
  .
  Bankero supports monthly budgets by category with budget-vs-actual reporting.
  .
- Budgets also create **virtual deficits**: they reserve money in reporting so
- your account summary shows what’s safe to spend.
+ Bankero also supports an **effective balance** overlay for budgets that are
+ scoped to an `--account`.
  .
  ### Creating a budget
  .
  ```bash
  bankero budget create "Materials" 1500 USDT @binance --account
  assets:personalbinance
- > Budget "Materials" with id "id213m-..." created.
+ Created budget 'Materials' 1500 USDT.
+ ```
+ .
+ Report budgets vs actual spend:
+ .
+ ```bash
+ bankero budget report --month 2026-02
  ```
  .
  ### Automation: virtual siphoning
@@ -510,9 +602,16 @@ Description: Local-first multi-currency ledger (CLI)
  before you see the “available” cash.
  .
  ```bash
- # Every time I get paid from McDonalds, virtually reserve 300 USD
- bankero budget update "Materials" --auto-virtually-remove-from-balance --when
- every-credit --from income:mcdonalds --until 1300 USDT
+ # Every time I get paid from salary, virtually reserve money into the budget
+ # (capped by --until; reservation is reduced as you spend in the budget
+ category)
+ bankero budget update "Food" --auto-reserve-from income:salary --until 200 USD
+ ```
+ .
+ Disable automation:
+ .
+ ```bash
+ bankero budget update "Food" --clear-auto-reserve
  ```
  .
  ### Checking balance (actual vs effective)
@@ -522,6 +621,15 @@ Description: Local-first multi-currency ledger (CLI)
  > Actual Balance:    2500.00 USDT
  > Budget Reserved:  -1300.00 USDT (Materials)
  > Effective Total:   1200.00 USDT
+ ```
+ .
+ Note: effective balance currently accounts for **account-scoped budgets** only
+ (budgets created with `--account`).
+ .
+ You can set the month context used for budget reservations with `--month`:
+ .
+ ```bash
+ bankero balance assets:bank --month 2026-02
  ```
  .
  Example:
@@ -538,7 +646,7 @@ Description: Local-first multi-currency ledger (CLI)
  | Workspace | `ws checkout` | Swaps the entire data environment |
  | Project | `project checkout` | Auto-tags transactions to a specific goal |
  | Piggy bank | `piggy fund` | Tracks progress of a target amount |
- | Budget | `budget create` | Creates a virtual deficit in balance reports |
+ | Budget | `budget create` | Creates a budget target used by `budget report` |
  .
  ## Reports
  .
