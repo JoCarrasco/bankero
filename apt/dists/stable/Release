@@ -1,24 +1,25 @@
+Acquire-By-Hash: yes
 Architectures: amd64
 Codename: stable
 Components: main
-Date: Thu, 26 Feb 2026 01:42:18 +0000
+Date: Thu, 26 Feb 2026 02:03:16 +0000
 Description: Bankero APT repository
 Label: bankero
 Origin: bankero
 Suite: stable
 MD5Sum:
- b5cedd2c70fc4541f69db8e752401bcd              174 Release
+ 98487f0978046421fb2ef6172778c21f              195 Release
  85f11430a0292dbf5391cc0c248545ca            25459 main/binary-amd64/Packages
- 2917fe36ca5b0f12fa6fc66055629445             9848 main/binary-amd64/Packages.gz
+ d9141e984e1460c082fa76b7641898b0             9848 main/binary-amd64/Packages.gz
 SHA1:
- dd1829523a2b663d0a799229819163b6742e80ca              174 Release
+ 349333baa72f53028de43e082725ba75c87542c7              195 Release
  5c97586f0231b6bab097fae59a66b1e6c913cbc7            25459 main/binary-amd64/Packages
- 2674384f213ba2274bc78d97b0ec9c1aa6cfb1a3             9848 main/binary-amd64/Packages.gz
+ e90fc548535a00b6925dd8e3426cb3b505dd9c15             9848 main/binary-amd64/Packages.gz
 SHA256:
- b3fb492a6f51d200edc78ee7c775df2f58eaa15c658d49b6e9457d6fc417b7dc              174 Release
+ 9515def84121014bc194ed0af7676f31e8b00c6a15d8b87c19556bd20bc0e76c              195 Release
  de50d56e0f8f4c584ab29b98c318fce145210fcbac6ad6196e7587fec9002a9a            25459 main/binary-amd64/Packages
- 930bd5b76472c80b548fc77febd483be4806b38858fe2ac2a9ac2e1203b5e4dd             9848 main/binary-amd64/Packages.gz
+ d6727f38c39dcfb1de1cdbba10f64875791d0c05add58e0ad2feb78161f4ed6d             9848 main/binary-amd64/Packages.gz
 SHA512:
- 1d3180bd1a6ed8550bf23c3d8eb03fbcbca6fec372b8591208c342eb5c6ef60c7de5de37c6416a9553a6da6d512ece817d94fbb28e15f6964d70561540c599e6              174 Release
+ 62aa19dd691ff9b70ba505db11218b9e05d55604e450aa9a400492dcae837a51e1eaba62b5d632afc731f1cb93e998bf6f60eb6b0b01438dd3edee1b07e91db1              195 Release
  bb7d02fd1ff87690ee6af17bd207fd39c82ea24b7afb9def3ca9096e68aa0601e7f56eda9ce85e74b9e2fd7d1259febe4793d91a5676fef37cf6a9dca0531687            25459 main/binary-amd64/Packages
- a58252e7e9134057ddefe4e1cab3a9468ec381a934335fbf0de79dde3e5a95b397338cdbf51ef1a1f63f882e886c8a131066beea8768ca3f0dff952fc8bf9246             9848 main/binary-amd64/Packages.gz
+ 1ccd1d01f0fab818b4b2d4b781cb250f45508e727d12a2cc130e87b57ce4240606db06b3c0c8587660636b216fd038d6d600fab0c692417134028cfdf4e12653             9848 main/binary-amd64/Packages.gz
