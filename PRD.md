@@ -108,6 +108,11 @@ People who operate across multiple currencies (e.g., USD/VES/USDT/EUR) need:
 - As a user, I create events offline on multiple devices.
 - As a user, syncing never deletes events and preserves audit trail.
 
+Sync exchanges immutable events (append-only journal) and rate observations idempotently (UUID dedupe). Transport can be:
+
+- **Local file sync** via a shared folder (Syncthing/Dropbox/NFS) exporting/importing JSONL.
+- **LAN peer sync** with discovery + direct peer-to-peer exchange.
+
 ### 8.9 Recurrent tasks & integrations
 - As a user, I create a recurrent task (e.g., “Fetch Payoneer transactions every 30 minutes”).
 - As a user, each execution has a workflow run id and an auditable stream of workflow events.
@@ -218,6 +223,18 @@ bankero project list
 **8.7 Reporting**
 
 ```bash
+
+```
+
+**8.8 Multi-device sync (LAN peer sync)**
+
+```bash
+# On Device A (the peer that will accept sync sessions):
+bankero sync expose
+
+# On Device B:
+bankero sync discover
+bankero sync @1 all
 bankero report --month 2026-02
 bankero report --category expenses:food --month 2026-02
 bankero report --tag groceries --month 2026-02

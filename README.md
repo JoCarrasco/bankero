@@ -457,7 +457,21 @@ How it works:
 - Each device imports other devices' files and inserts missing events by UUID (idempotent).
 - Because events are immutable and identified by UUID, merging is deterministic and auditable.
 
-This is intentionally simple and local-first; a future milestone can add LAN/cloud transport.
+This is intentionally simple and local-first.
+
+### Stack (LAN sync)
+
+Bankero also supports a simple **LAN peer sync** transport:
+
+- `bankero sync expose` runs a local peer that can be discovered.
+- `bankero sync discover` finds peers and prints handles like `@1`.
+- `bankero sync @1 all` syncs events + rates with the selected peer.
+
+Peers are printed with a deterministic friendly device name, for example:
+
+```text
+@1 "funny_name" - user@host - bankero vX.Y.Z
+```
 
 ### CLI
 
@@ -468,6 +482,17 @@ bankero sync now
 
 # Override per command:
 bankero sync now --dir /mnt/shared/bankero
+```
+
+LAN (peer) sync:
+
+```bash
+# Device A
+bankero sync expose
+
+# Device B
+bankero sync discover
+bankero sync @1 all
 ```
 
 ### Core architecture: ports & adapters + domain invariants
