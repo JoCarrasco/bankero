@@ -1,14 +1,14 @@
 Package: bankero
-Version: 0.0.7-1
+Version: 0.0.8-1
 Architecture: amd64
 Maintainer: Bankero Maintainers <noreply@github.com>
-Installed-Size: 7000
+Installed-Size: 7369
 Depends: libc6 (>= 2.39)
-Filename: pool/main/b/bankero/bankero_0.0.7-1_amd64.deb
-Size: 2573832
-MD5sum: 654366016853141a3d5e32438ad09232
-SHA1: cc7ce9da2900ee329e955a0c7defe505274a314a
-SHA256: 150ef5d498f825b648775eac95c015c55ef1ad454a2cdbd0c324cdd63d08d2b2
+Filename: pool/main/b/bankero/bankero_0.0.8-1_amd64.deb
+Size: 2680420
+MD5sum: e53f68816fb353cfb2ca3233c4bd0d21
+SHA1: ca4a492b0051e6cfa582822428ae46a83fdb9c5c
+SHA256: b1ab4807179bddfbc5b445f65718c4906b7d5fa034b42ced86e5413a131ecc51
 Section: utils
 Priority: optional
 Homepage: https://github.com/JoCarrasco/bankero
@@ -178,8 +178,8 @@ Description: Local-first multi-currency ledger (CLI)
  - [x] Effective balance (reserved vs effective) for account-scoped budgets
  - [x] Budget automation MVP: auto-reserve from matching credits (cap with
  `--until`)
- - [ ] Piggy banks (savings goals)
- - [ ] Multi-device sync (`login`, `sync status|now`)
+ - [x] Piggy banks (savings goals)
+ - [x] Multi-device sync (`login`, `sync status|now`)
  - [ ] Recurrent tasks + workflows + webhook integrations
  .
  ## Flow checklist (E2E use-cases)
@@ -187,8 +187,8 @@ Description: Local-first multi-currency ledger (CLI)
  This project prioritizes **flow correctness** over pure line coverage: we track
  whether real CLI workflows (cross-over use cases) keep working end-to-end.
  .
- Scope: only flows that are implemented (stub commands like `sync`, `task`,
- `workflow`, `piggy` are excluded until they stop being stubs).
+ Scope: only flows that are implemented (stub commands like `task`, `workflow`
+ are excluded until they stop being stubs).
  .
  Compute flow coverage from the terminal:
  .
@@ -316,6 +316,9 @@ Description: Local-first multi-currency ledger (CLI)
  ```bash
  # Create a Piggy Bank for a new car
  bankero piggy create "New Car" 5000 USD --from assets:savings
+ .
+ # Fund it (virtual reservation; does not move money)
+ bankero piggy fund "New Car" 2000 USD
  .
  # Check progress (shows percentage and remaining)
  bankero piggy status "New Car"
@@ -556,21 +559,55 @@ Description: Local-first multi-currency ledger (CLI)
  .
  ### Stack (local sync)
  .
- Bankero synchronizes devices using:
+ MVP sync is **file-based** and works with any shared folder mechanism you
+ already use
+ (Syncthing, Dropbox, Google Drive, NFS, etc.).
  .
- - **Loro** as the conflict-free replicated state layer
- - **Iroh** as the transport layer, using mDNS for Wi‑Fi discovery and
- peer-to-peer connections
+ How it works:
  .
- This combination provides convergence without last-write-wins and keeps the
- ledger auditable.
+ - Each device exports its local `events` (journal) and `rates` to per-device
+ JSONL files.
+ - Each device imports other devices' files and inserts missing events by UUID
+ (idempotent).
+ - Because events are immutable and identified by UUID, merging is deterministic
+ and auditable.
+ .
+ This is intentionally simple and local-first.
+ .
+ ### Stack (LAN sync)
+ .
+ Bankero also supports a simple **LAN peer sync** transport:
+ .
+ - `bankero sync expose` runs a local peer that can be discovered.
+ - `bankero sync discover` finds peers and prints handles like `@1`.
+ - `bankero sync @1 all` syncs events + rates with the selected peer.
+ .
+ Peers are printed with a deterministic friendly device name, for example:
+ .
+ ```text
+ @1 "funny_name" - user@host - bankero vX.Y.Z
+ ```
  .
  ### CLI
  .
  ```bash
- bankero login
+ bankero login --sync-dir ~/bankero-sync
  bankero sync status
  bankero sync now
+ .
+ # Override per command:
+ bankero sync now --dir /mnt/shared/bankero
+ ```
+ .
+ LAN (peer) sync:
+ .
+ ```bash
+ # Device A
+ bankero sync expose
+ .
+ # Device B
+ bankero sync discover
+ bankero sync @1 all
  ```
  .
  ### Core architecture: ports & adapters + domain invariants
