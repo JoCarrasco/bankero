@@ -50,7 +50,7 @@ fn spawn_expose(home: &tempfile::TempDir) -> (Child, mpsc::Receiver<String>) {
 
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
-        for line in reader.lines().flatten() {
+        for line in reader.lines().map_while(Result::ok) {
             let _ = tx.send(line);
         }
     });
@@ -58,7 +58,7 @@ fn spawn_expose(home: &tempfile::TempDir) -> (Child, mpsc::Receiver<String>) {
     // Drain stderr so the child can't block if it writes.
     std::thread::spawn(move || {
         let reader = BufReader::new(stderr);
-        for line in reader.lines().flatten() {
+        for line in reader.lines().map_while(Result::ok) {
             let _ = tx_err.send(format!("[stderr] {line}"));
         }
     });
