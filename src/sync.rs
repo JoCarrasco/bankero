@@ -14,6 +14,42 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+fn should_auto_accept_sync(test_once: bool) -> bool {
+    if test_once {
+        return true;
+    }
+    matches!(
+        std::env::var("BANKERO_SYNC_AUTO_ACCEPT").as_deref(),
+        Ok("1") | Ok("true") | Ok("yes") | Ok("y")
+    )
+}
+
+fn prompt_accept_sync(peer: Option<SocketAddr>) -> Result<bool> {
+    let peer_display = peer
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "<unknown>".to_string());
+    print!("Incoming sync from {peer_display}. Accept? (y/n): ");
+    std::io::stdout().flush().ok();
+
+    let mut line = String::new();
+    match std::io::stdin().read_line(&mut line) {
+        Ok(0) => return Ok(false),
+        Ok(_) => {}
+        Err(_) => return Ok(false),
+    }
+
+    let s = line.trim().to_ascii_lowercase();
+    if s == "y" || s == "yes" {
+        return Ok(true);
+    }
+    if s == "n" || s == "no" {
+        return Ok(false);
+    }
+
+    println!("Please answer y or n.");
+    prompt_accept_sync(peer)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct WireEvent {
     pub id: Uuid,
@@ -474,14 +510,32 @@ fn sync_expose(
             continue;
         };
 
+        let peer = stream.peer_addr().ok();
+        if !should_auto_accept_sync(test_once) {
+            let accept = prompt_accept_sync(peer)?;
+            if !accept {
+                let mut w = BufWriter::new(stream);
+                let _ = write_msg(
+                    &mut w,
+                    &SyncMsg::Error {
+                        message: "Sync rejected by user".to_string(),
+                    },
+                );
+                println!("rejected sync");
+                continue;
+            }
+        }
+
         println!("received sync event");
         println!("syncing..");
         match handle_sync_connection_server(db, cfg, stream) {
-            Ok((imported_events, imported_rates)) => {
+            Ok(stats) => {
                 println!("sync complete");
                 println!("sync summary:");
-                println!("- imported events: {imported_events}");
-                println!("- imported rates: {imported_rates}");
+                println!("- sent events: {}", stats.sent_events);
+                println!("- sent rates: {}", stats.sent_rates);
+                println!("- imported events: {}", stats.imported_events);
+                println!("- imported rates: {}", stats.imported_rates);
             }
             Err(err) => {
                 eprintln!("sync failed: {err:#}");
@@ -566,11 +620,15 @@ fn read_msg(line: &str) -> Result<SyncMsg> {
     Ok(msg)
 }
 
-fn handle_sync_connection_server(
-    db: &Db,
-    cfg: &AppConfig,
-    stream: TcpStream,
-) -> Result<(usize, usize)> {
+#[derive(Debug, Clone, Copy)]
+struct SyncStats {
+    imported_events: usize,
+    imported_rates: usize,
+    sent_events: usize,
+    sent_rates: usize,
+}
+
+fn handle_sync_connection_server(db: &Db, cfg: &AppConfig, stream: TcpStream) -> Result<SyncStats> {
     let peer = stream.peer_addr().ok();
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = BufWriter::new(stream);
@@ -578,7 +636,12 @@ fn handle_sync_connection_server(
     let mut line = String::new();
     reader.read_line(&mut line)?;
     if line.trim().is_empty() {
-        return Ok((0, 0));
+        return Ok(SyncStats {
+            imported_events: 0,
+            imported_rates: 0,
+            sent_events: 0,
+            sent_rates: 0,
+        });
     }
     let hello = read_msg(line.trim())?;
     let SyncMsg::Hello { workspace, .. } = hello else {
@@ -588,7 +651,12 @@ fn handle_sync_connection_server(
                 message: "Expected hello".to_string(),
             },
         )?;
-        return Ok((0, 0));
+        return Ok(SyncStats {
+            imported_events: 0,
+            imported_rates: 0,
+            sent_events: 0,
+            sent_rates: 0,
+        });
     };
 
     if workspace != cfg.current_workspace {
@@ -601,7 +669,12 @@ fn handle_sync_connection_server(
                 ),
             },
         )?;
-        return Ok((0, 0));
+        return Ok(SyncStats {
+            imported_events: 0,
+            imported_rates: 0,
+            sent_events: 0,
+            sent_rates: 0,
+        });
     }
 
     write_msg(
@@ -657,11 +730,13 @@ fn handle_sync_connection_server(
     // Send pull.
     let events = db.list_events()?;
     let rates = db.list_all_rates()?;
+    let sent_events = events.len();
+    let sent_rates = rates.len();
     write_msg(
         &mut writer,
         &SyncMsg::PullBegin {
-            events: events.len(),
-            rates: rates.len(),
+            events: sent_events,
+            rates: sent_rates,
         },
     )?;
 
@@ -699,7 +774,12 @@ fn handle_sync_connection_server(
     if let Some(peer) = peer {
         let _ = peer;
     }
-    Ok((imported_events, imported_rates))
+    Ok(SyncStats {
+        imported_events,
+        imported_rates,
+        sent_events,
+        sent_rates,
+    })
 }
 
 fn sync_external(db: &Db, cfg: &mut AppConfig, cfg_path: &Path, argv: Vec<String>) -> Result<()> {
@@ -771,11 +851,14 @@ fn sync_external(db: &Db, cfg: &mut AppConfig, cfg_path: &Path, argv: Vec<String
 
     let events = db.list_events()?;
     let rates = db.list_all_rates()?;
+
+    let sent_events = events.len();
+    let sent_rates = rates.len();
     write_msg(
         &mut writer,
         &SyncMsg::PushBegin {
-            events: events.len(),
-            rates: rates.len(),
+            events: sent_events,
+            rates: sent_rates,
         },
     )?;
     for e in events {
@@ -804,6 +887,8 @@ fn sync_external(db: &Db, cfg: &mut AppConfig, cfg_path: &Path, argv: Vec<String
     // Receive pull.
     let mut imported_events = 0usize;
     let mut imported_rates = 0usize;
+    let mut peer_imported_events = 0usize;
+    let mut peer_imported_rates = 0usize;
     loop {
         line.clear();
         let n = reader.read_line(&mut line)?;
@@ -829,7 +914,14 @@ fn sync_external(db: &Db, cfg: &mut AppConfig, cfg_path: &Path, argv: Vec<String
                 imported_rates += 1;
             }
             SyncMsg::PullEnd => {}
-            SyncMsg::Summary { .. } => break,
+            SyncMsg::Summary {
+                imported_events,
+                imported_rates,
+            } => {
+                peer_imported_events = imported_events;
+                peer_imported_rates = imported_rates;
+                break;
+            }
             SyncMsg::Error { message } => return Err(anyhow!(message)),
             _ => {}
         }
@@ -840,8 +932,12 @@ fn sync_external(db: &Db, cfg: &mut AppConfig, cfg_path: &Path, argv: Vec<String
 
     println!("sync complete");
     println!("sync summary:");
+    println!("- sent events: {sent_events}");
+    println!("- sent rates: {sent_rates}");
     println!("- imported events: {imported_events}");
     println!("- imported rates: {imported_rates}");
+    println!("- peer imported events: {peer_imported_events}");
+    println!("- peer imported rates: {peer_imported_rates}");
     Ok(())
 }
 
