@@ -184,6 +184,7 @@ jobs:
           publish_branch: gh-pages
           publish_dir: apt-repo
           destination_dir: apt
+          keep_files: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

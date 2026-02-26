@@ -34,13 +34,51 @@ HTML
 
 mkdir -p "${repo_root}/dists/${codename}/${component}/binary-${arch}"
 
+binary_dir="${repo_root}/dists/${codename}/${component}/binary-${arch}"
+packages_path="${binary_dir}/Packages"
+packages_gz_path="${packages_path}.gz"
+
 # Packages index
 (
   cd "${repo_root}"
   dpkg-scanpackages --arch "${arch}" "pool" /dev/null > "dists/${codename}/${component}/binary-${arch}/Packages"
 )
 
-gzip -fk "${repo_root}/dists/${codename}/${component}/binary-${arch}/Packages"
+gzip -fk "${packages_path}"
+
+make_by_hash() {
+  local file_path="${1:?file_path required}"
+  local algo="${2:?algo required}"
+  local algo_upper
+  local sum
+
+  case "${algo}" in
+    sha256)
+      sum=$(sha256sum "${file_path}" | awk '{print $1}')
+      algo_upper="SHA256"
+      ;;
+    sha512)
+      sum=$(sha512sum "${file_path}" | awk '{print $1}')
+      algo_upper="SHA512"
+      ;;
+    *)
+      echo "Unsupported hash algorithm: ${algo}" >&2
+      exit 1
+      ;;
+  esac
+
+  mkdir -p "$(dirname "${file_path}")/by-hash/${algo_upper}"
+  cp -f "${file_path}" "$(dirname "${file_path}")/by-hash/${algo_upper}/${sum}"
+}
+
+# Acquire-By-Hash reduces transient index mismatches on static/CDN-backed hosting.
+make_by_hash "${packages_path}" sha256
+make_by_hash "${packages_path}" sha512
+make_by_hash "${packages_gz_path}" sha256
+make_by_hash "${packages_gz_path}" sha512
 
 # Release file
-apt-ftparchive -c packaging/apt/apt-ftparchive.conf release "${repo_root}/dists/${codename}" > "${repo_root}/dists/${codename}/Release"
+{
+  echo "Acquire-By-Hash: yes"
+  apt-ftparchive -c packaging/apt/apt-ftparchive.conf release "${repo_root}/dists/${codename}"
+} > "${repo_root}/dists/${codename}/Release"
