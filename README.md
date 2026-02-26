@@ -136,14 +136,14 @@ Next up (in PRD order):
 - [x] Effective balance (reserved vs effective) for account-scoped budgets
 - [x] Budget automation MVP: auto-reserve from matching credits (cap with `--until`)
 - [x] Piggy banks (savings goals)
-- [ ] Multi-device sync (`login`, `sync status|now`)
+- [x] Multi-device sync (`login`, `sync status|now`)
 - [ ] Recurrent tasks + workflows + webhook integrations
 
 ## Flow checklist (E2E use-cases)
 
 This project prioritizes **flow correctness** over pure line coverage: we track whether real CLI workflows (cross-over use cases) keep working end-to-end.
 
-Scope: only flows that are implemented (stub commands like `sync`, `task`, `workflow` are excluded until they stop being stubs).
+Scope: only flows that are implemented (stub commands like `task`, `workflow` are excluded until they stop being stubs).
 
 Compute flow coverage from the terminal:
 
@@ -448,19 +448,26 @@ At a high level:
 
 ### Stack (local sync)
 
-Bankero synchronizes devices using:
+MVP sync is **file-based** and works with any shared folder mechanism you already use
+(Syncthing, Dropbox, Google Drive, NFS, etc.).
 
-- **Loro** as the conflict-free replicated state layer
-- **Iroh** as the transport layer, using mDNS for Wi‑Fi discovery and peer-to-peer connections
+How it works:
 
-This combination provides convergence without last-write-wins and keeps the ledger auditable.
+- Each device exports its local `events` (journal) and `rates` to per-device JSONL files.
+- Each device imports other devices' files and inserts missing events by UUID (idempotent).
+- Because events are immutable and identified by UUID, merging is deterministic and auditable.
+
+This is intentionally simple and local-first; a future milestone can add LAN/cloud transport.
 
 ### CLI
 
 ```bash
-bankero login
+bankero login --sync-dir ~/bankero-sync
 bankero sync status
 bankero sync now
+
+# Override per command:
+bankero sync now --dir /mnt/shared/bankero
 ```
 
 ### Core architecture: ports & adapters + domain invariants

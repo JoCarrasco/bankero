@@ -227,14 +227,32 @@ Examples:
     Workflow(WorkflowArgs),
 
     #[command(
-        about = "Login (stub)",
-        long_about = "Login is a stub for later milestones."
+        about = "Login / device setup",
+        long_about = r#"Login / device setup.
+
+This is an MVP helper for multi-device sync.
+
+Examples:
+    bankero login
+    bankero login --sync-dir ~/bankero-sync
+"#
     )]
-    Login,
+    Login(LoginArgs),
 
     #[command(
-        about = "Sync commands (stub)",
-        long_about = "Sync commands are a stub for later milestones."
+        about = "Sync commands",
+        long_about = r#"Multi-device sync (MVP).
+
+This implementation syncs via a shared folder (e.g., Syncthing, Dropbox, NFS).
+
+Examples:
+    bankero login --sync-dir ~/bankero-sync
+    bankero sync status
+    bankero sync now
+
+You can also override the folder per command:
+    bankero sync now --dir /mnt/shared/bankero
+"#
     )]
     Sync(SyncArgs),
 
@@ -791,12 +809,78 @@ pub enum SyncCmd {
 
     #[command(about = "Run a sync now", long_about = "Run a sync now.")]
     Now,
+
+    #[command(
+        about = "Discover sync peers on the local network",
+        long_about = "Discover sync peers on the local network. Use the printed @N handle with: bankero sync @N all"
+    )]
+    Discover {
+        /// How long to wait for peer responses.
+        #[arg(long, default_value_t = 1500)]
+        timeout_ms: u64,
+
+        /// Test-only: send discovery to a specific UDP address instead of broadcast.
+        #[arg(long, hide = true)]
+        target: Option<String>,
+    },
+
+    #[command(
+        about = "Expose this device for LAN sync",
+        long_about = "Expose this device for LAN sync. Other devices can discover it and run: bankero sync @N all"
+    )]
+    Expose {
+        /// Friendly name shown in discovery (e.g. juicy_strawberry).
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Test-only: bind IP for UDP/TCP listeners (defaults to 0.0.0.0).
+        #[arg(long, hide = true)]
+        test_bind: Option<String>,
+
+        /// Test-only: UDP port for discovery responder (0 = ephemeral).
+        #[arg(long, hide = true)]
+        test_udp_port: Option<u16>,
+
+        /// Test-only: TCP port for sync server (0 = ephemeral).
+        #[arg(long, hide = true)]
+        test_tcp_port: Option<u16>,
+
+        /// Test-only: exit after serving a single sync.
+        #[arg(long, hide = true)]
+        test_once: bool,
+
+        /// Test-only: print selected UDP/TCP addresses.
+        #[arg(long, hide = true)]
+        test_print_ports: bool,
+    },
+
+    #[command(external_subcommand)]
+    External(Vec<String>),
 }
 
 #[derive(Debug, Args)]
 pub struct SyncArgs {
+    /// Shared folder used for sync.
+    #[arg(long, env = "BANKERO_SYNC_DIR")]
+    pub dir: Option<String>,
+
     #[command(subcommand)]
     pub cmd: SyncCmd,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct LoginArgs {
+    /// Configure the shared sync folder for this device.
+    #[arg(long, env = "BANKERO_SYNC_DIR")]
+    pub sync_dir: Option<String>,
+
+    /// Set a friendly device name used for identification in sync (e.g. juicy_strawberry).
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// Generate a new funny device name.
+    #[arg(long)]
+    pub regen_name: bool,
 }
 
 #[derive(Debug, Subcommand)]

@@ -9,20 +9,76 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub device_id: Uuid,
+
+    /// Friendly device name used for human-facing identification (e.g. in sync discovery).
+    ///
+    /// If missing (older configs), it is auto-filled from `device_id`.
+    #[serde(default)]
+    pub device_name: Option<String>,
     pub current_workspace: String,
     pub current_project: String,
     pub reference_commodity: String,
+
+    /// Shared folder path used for file-based multi-device sync (MVP).
+    #[serde(default)]
+    pub sync_dir: Option<String>,
+
+    /// Timestamp of the last successful sync.
+    #[serde(default)]
+    pub last_sync_at: Option<DateTime<Utc>>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
+        let device_id = Uuid::new_v4();
         Self {
-            device_id: Uuid::new_v4(),
+            device_id,
+            device_name: Some(funny_name_from_uuid(device_id)),
             current_workspace: "personal".to_string(),
             current_project: "default".to_string(),
             reference_commodity: "USD".to_string(),
+            sync_dir: None,
+            last_sync_at: None,
         }
     }
+}
+
+pub fn funny_name_from_uuid(id: Uuid) -> String {
+    // Deterministic, dependency-free name generation.
+    // Keep the list small and inoffensive; output is stable per device_id.
+    const ADJ: &[&str] = &[
+        "juicy", "zesty", "bouncy", "cosmic", "witty", "sparkly", "sleepy", "brave", "sneaky",
+        "happy", "mellow", "curious", "tiny", "giant", "swift", "cuddly", "crispy", "gentle",
+        "spicy", "funky",
+    ];
+    const NOUN: &[&str] = &[
+        "strawberry",
+        "pineapple",
+        "mango",
+        "blueberry",
+        "kiwi",
+        "peach",
+        "avocado",
+        "lemon",
+        "tangerine",
+        "panda",
+        "otter",
+        "penguin",
+        "alpaca",
+        "badger",
+        "fox",
+        "koala",
+        "gecko",
+        "hamster",
+        "turtle",
+        "narwhal",
+    ];
+
+    let b = id.as_bytes();
+    let a = u16::from_le_bytes([b[0], b[1]]) as usize;
+    let n = u16::from_le_bytes([b[2], b[3]]) as usize;
+
+    format!("{}_{}", ADJ[a % ADJ.len()], NOUN[n % NOUN.len()])
 }
 
 #[derive(Debug, Clone)]
@@ -61,8 +117,18 @@ pub fn load_or_init_config(paths: &AppPaths) -> Result<(AppConfig, PathBuf)> {
 
     let raw = fs::read_to_string(&cfg_path)
         .with_context(|| format!("Failed to read {}", cfg_path.display()))?;
-    let cfg: AppConfig = serde_json::from_str(&raw)
+    let mut cfg: AppConfig = serde_json::from_str(&raw)
         .with_context(|| format!("Failed to parse {}", cfg_path.display()))?;
+
+    // Auto-migrate older config versions.
+    let mut changed = false;
+    if cfg.device_name.is_none() {
+        cfg.device_name = Some(funny_name_from_uuid(cfg.device_id));
+        changed = true;
+    }
+    if changed {
+        write_config(&cfg_path, &cfg)?;
+    }
 
     Ok((cfg, cfg_path))
 }

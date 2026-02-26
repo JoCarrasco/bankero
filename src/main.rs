@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod db;
 mod domain;
+mod sync;
 mod upgrade;
 
 use anyhow::{Context, Result, anyhow};
@@ -35,6 +36,10 @@ fn run() -> Result<()> {
     let (mut cfg, cfg_path) = load_or_init_config(&paths)?;
 
     match cli.command {
+        Command::Login(args) => {
+            crate::sync::handle_login(args, &mut cfg, &cfg_path)?;
+            Ok(())
+        }
         Command::Ws(args) => {
             handle_ws(args.cmd, &paths, &mut cfg, &cfg_path)?;
             Ok(())
@@ -197,10 +202,15 @@ fn run() -> Result<()> {
                 Command::Piggy(args) => {
                     handle_piggy(&db, args.cmd)?;
                 }
-                Command::Task(_) | Command::Workflow(_) | Command::Login | Command::Sync(_) => {
+                Command::Sync(args) => {
+                    crate::sync::handle_sync(&db, args, &mut cfg, &cfg_path)?;
+                }
+                Command::Task(_) | Command::Workflow(_) => {
                     eprintln!("This command is a stub for later milestones.");
                 }
-                Command::Ws(_) | Command::Project(_) | Command::Upgrade(_) => unreachable!(),
+                Command::Ws(_) | Command::Project(_) | Command::Upgrade(_) | Command::Login(_) => {
+                    unreachable!()
+                }
             }
 
             Ok(())

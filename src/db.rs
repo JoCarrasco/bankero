@@ -9,6 +9,15 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
+pub struct StoredRate {
+    pub provider: String,
+    pub base: String,
+    pub quote: String,
+    pub as_of: DateTime<Utc>,
+    pub rate: Decimal,
+}
+
+#[derive(Debug, Clone)]
 pub struct StoredBudget {
     pub id: Uuid,
     pub name: String,
@@ -480,6 +489,73 @@ impl Db {
             ],
         )?;
         Ok(())
+    }
+
+    /// Inserts an event if it does not exist yet.
+    /// Returns true if inserted, false if it already existed.
+    pub fn insert_event_ignore(&self, id: Uuid, payload: &EventPayload) -> Result<bool> {
+        let json = serde_json::to_string(payload)?;
+        let affected = self.conn.execute(
+            "INSERT OR IGNORE INTO events (id, action, created_at, effective_at, payload_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                id.to_string(),
+                payload.action,
+                payload.created_at.to_rfc3339(),
+                payload.effective_at.to_rfc3339(),
+                json
+            ],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn count_events(&self) -> Result<i64> {
+        let mut stmt = self.conn.prepare("SELECT COUNT(*) FROM events")?;
+        let count: i64 = stmt.query_row([], |row| row.get(0))?;
+        Ok(count)
+    }
+
+    pub fn count_rates(&self) -> Result<i64> {
+        let mut stmt = self.conn.prepare("SELECT COUNT(*) FROM rates")?;
+        let count: i64 = stmt.query_row([], |row| row.get(0))?;
+        Ok(count)
+    }
+
+    pub fn list_all_rates(&self) -> Result<Vec<StoredRate>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT provider, base, quote, as_of, rate
+            FROM rates
+            ORDER BY provider ASC, base ASC, quote ASC, as_of ASC
+            "#,
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let provider: String = row.get(0)?;
+            let base: String = row.get(1)?;
+            let quote: String = row.get(2)?;
+            let as_of_raw: String = row.get(3)?;
+            let rate_raw: String = row.get(4)?;
+            Ok((provider, base, quote, as_of_raw, rate_raw))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (provider, base, quote, as_of_raw, rate_raw) = row?;
+            let as_of = DateTime::parse_from_rfc3339(&as_of_raw)
+                .context("Invalid as_of in rates table")?
+                .with_timezone(&Utc);
+            let rate = rate_raw
+                .parse::<Decimal>()
+                .context("Invalid decimal rate in rates table")?;
+            out.push(StoredRate {
+                provider,
+                base,
+                quote,
+                as_of,
+                rate,
+            });
+        }
+        Ok(out)
     }
 
     pub fn list_events(&self) -> Result<Vec<StoredEvent>> {
